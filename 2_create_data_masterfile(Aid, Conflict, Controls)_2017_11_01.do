@@ -31,6 +31,8 @@ cd "$data\Aid\2017_10_05_WB"
 
 * Prepare GADM2 regions data in order to be able to attribute Precision Code 4 (ADM1 data) to subregions
 
+/*XXXXXXXXX Melvin 08.11.2017: Correct error in CSV file. Contained empty spaces 
+which lead to incorrect import of CSV data*/
 * Load GADM Data
 import delim using "$data\ADM\gadm28.csv", clear
 keep objectidn100 isoc3 id_0n100 name_0c75 id_1n100 name_1c75 name_2c75 id_2n100
@@ -42,14 +44,25 @@ egen ID_adm1 = concat(c id_0n100 r id_1n100)
 egen ID_adm2 = concat(c id_0n100 r id_1n100 r id_2n100)
 drop c r  id_0n100 id_1n100 id_2n100
 label var ID_adm2 "Unique identifier for ADM2 region"
+
+/*XXXXXXXXX Melvin 08.11.2017: Recode missing ADM2 regions as ADM1 */
+gen byte d_miss_ADM2=(ADM2=="")
+br if d_miss_ADM2==1
+replace ADM2=ADM1 if d_miss_ADM2==1
+
+/*XXXXXXXXX Melvin 08.11.2017: After correction of CSV file don't need this section anymore
 duplicates drop OBJECTID, force
 * 7 Regions are coded wrongly and are dropped
 drop if ISO3==""
+*/
+
+ssss
 duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
 * drop mulitple entries due to multiple polygons for same region. ok to drop here.
+
 drop OBJECTID
-tempfile gadm2
-save `gadm2', replace
+ssss
+save gadm2, replace
 
 * Create yearly population totals
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
