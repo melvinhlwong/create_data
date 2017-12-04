@@ -27,7 +27,7 @@ global rawdata "C:\Users\lkaplan\Dropbox\Geocoded Aid and Conflict\Raw Data"
 * A: Create IDA Aid Data *
 **************************
 **************************
-cd "$data\Aid\2017_10_05_WB"
+cd "$data\Aid\2017_11_14_WB"
 
 * Prepare GADM2 regions data in order to be able to attribute Precision Code 4 (ADM1 data) to subregions
 
@@ -56,23 +56,22 @@ duplicates drop OBJECTID, force
 drop if ISO3==""
 */
 
-ssss
 duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
-* drop mulitple entries due to multiple polygons for same region. ok to drop here.
-
+* drop mulitple entries due to multiple polygons for same region. ok to drop here, since we are interested in the region's existence and not single polygons comprising them.
 drop OBJECTID
-ssss
+
 save gadm2, replace
 
 * Create yearly population totals
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
 rename country isoc3
 rename isum_pop isum_pop_ADM1
+sss
 collapse (sum) isum_pop_ADM1, by(isoc3 year)
 renvars isum_pop year / c_pop transaction_year
 label var c_pop "Total Country Population"
-tempfile country_pop
-save `country_pop', replace
+save country_pop, replace
+
 
 
 *************************@Melvin: Please add data source and access here*****************
@@ -108,7 +107,7 @@ egen ID_adm5 = concat(c ID_0n100 r ID_1n100 r ID_2n100 r ID_3n100 r ID_4n100 r I
 */
 drop c r
 sort project_id
-save "$data\Aid\2017_10_05_WB\alg.dta", replace
+save "$data\Aid\2017_11_14_WB\alg.dta", replace
 
 * Create yearly disbursements (only until 2012 as we do not have disbursement data in subsequent years)
 forvalues i=1995(1)2012 {
@@ -126,7 +125,7 @@ label var Disbursementcount "Sum of yearly positive disbursements within project
 drop transaction_value
 
 collapse (mean) transaction_value_tot Disbursementcount, by(project_id transaction_year)
-merge 1:m project_id using "$data\Aid\2017_10_05_WB\alg.dta", nogen keep(3 1)
+merge 1:m project_id using "$data\Aid\2017_11_14_WB\alg.dta", nogen keep(3 1)
 
 /* 
 Now, allocate aid flows that do not correspond to a certain administrative area in the following way
@@ -174,27 +173,28 @@ replace Disbursementcount_`g'=Disbursementcount_`g'+Disbursementcount if mjsecto
 gen transaction_value_tot_`g'=aux1+aux2+aux3+aux4+aux5
 drop aux*
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 
 * Put yearly disbursements together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
 
 keep if (precision_N100<=4)
-save "$data\Aid\2017_10_05_WB\IDA_disbursement.dta", replace
+save "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", replace
 
 
-use "$data\Aid\2017_10_05_WB\IDA_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
 keep if (precision_N100==4)
-save "$data\Aid\2017_10_05_WB\IDA_disbursement4.dta", replace
+save "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 
 * Prepare location weighted data with precision code 4 (Only ADM1 information)
-use "$data\Aid\2017_10_05_WB\IDA_disbursement4.dta", replace
+use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 gen count=1
 bysort project_id transaction_year: egen totalcount=total(count)
 gen transaction_value_loc=transaction_value_tot/totalcount
@@ -212,11 +212,11 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 replace Disbursementcount_`g'=round(Disbursementcount_`g')
 renvars transaction_value_loc_`g' Disbursementcount_`g' / WBAID_ADM1_LOC_`g'4 Disbursementcount_ADM1_`g'4
 }
-save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_prec4.dta", replace 
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_prec4.dta", replace 
 
 
 * Prepare location weighted data with precision code 4 (ADM2 information)
-use "$data\Aid\2017_10_05_WB\IDA_disbursement4.dta", replace
+use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 joinby ID_adm1 using `gadm2'
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
@@ -244,11 +244,10 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 replace Disbursementcount_`g'=round(Disbursementcount_`g')
 renvars transaction_value_loc_`g' Disbursementcount_`g' / WBAID_ADM2_LOC_`g'4 Disbursementcount_ADM2_`g'4
 }
-tempfile Disbursement_ADM2_prec4
-save `Disbursement_ADM2_prec4', replace 
+save Disbursement_ADM2_prec4.dta, replace 
 
 * Prepare population weighted data with precision code 4 (Only ADM1 information)
-use "$data\Aid\2017_10_05_WB\IDA_disbursement4.dta", replace
+use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 renvars transaction_year ID_adm1 / year rid1
 merge m:1 rid1 year using "$data\ADM\1_1_1_R_pop_GADM1.dta", nogen
 renvars year rid1 /  transaction_year ID_adm1
@@ -272,13 +271,11 @@ replace Disbursementcount_ADM1_`g'=round(Disbursementcount_ADM1_`g')
 renvars  Disbursementcount_ADM1_`g' /  Disbursementcount_ADM1_`g'4
 }
 keep WBAID* Disbursement* transaction_year ISO3 ADM1 ID_adm1
-tempfile Disbursement_ADM1_Wpop_prec4
-save `Disbursement_ADM1_Wpop_prec4', replace 
-
+save Disbursement_ADM1_Wpop_prec4.dta, replace 
 
 
 * Prepare population weighted data with precision code 4 (ADM2 information)
-use "$data\Aid\2017_10_05_WB\IDA_disbursement4.dta", replace
+use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 joinby ID_adm1 using `gadm2'
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
@@ -312,15 +309,15 @@ renvars  Disbursementcount_ADM2_`g' /  Disbursementcount_ADM2_`g'4
 replace Disbursementcount_ADM2_`g'4=round(Disbursementcount_ADM2_`g'4)
 }
 keep WBAID* Disbursement* transaction_year ADM1 ADM2 ISO3 ID_adm2 ID_adm1
-tempfile Disbursement_ADM2_Wpop_prec4
-save `Disbursement_ADM2_Wpop_prec4', replace 
+
+save Disbursement_ADM2_Wpop_prec4.dta, replace 
 
 ********************************************************************************
 //Generate regional shares weighted by number of projects
 ********************************************************************************
 * KG. @Melvin There seem to be errors in the names of some adm2 regions, or not?E.g., that with the ID_2n100 633?
 
-use "$data\Aid\2017_10_05_WB\IDA_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
 gen count=1
 bysort project_id transaction_year: egen count1=total(count)
 label var count1 "Number of project sites per project per year"  
@@ -366,30 +363,30 @@ Pretend that ADM2 regions are ADM1 regions, if the ADM2 regions are missing.
 */
 
 	//bysort ID_0n100 ID_1n100: gen count_region
-	save "$data\Aid\2017_10_05_WB\IDA_temp1.dta", replace 
+	save "$data\Aid\2017_11_14_WB\IDA_temp1.dta", replace 
 	
 	/* not necessary anymore, but keep if need to identify regions that are missing
-	use "$data\Aid\2017_10_05_WB\temp1.dta", clear
+	use "$data\Aid\2017_11_14_WB\temp1.dta", clear
 	drop if ID_2n100!=0 
 	drop if ID_0n100==0
 	drop if ID_1n100!=0
 	
 	collapse (sum) transaction_value_tot, by(ID_0n100 transaction_year)
 	rename transaction_value_tot transaction_value_tot_adm0
-	save "$data\Aid\2017_10_05_WB\aID_adm0_missingadm2.dta", replace
+	save "$data\Aid\2017_11_14_WB\aID_adm0_missingadm2.dta", replace
 
-	use "$data\Aid\2017_10_05_WB\temp1.dta", clear
+	use "$data\Aid\2017_11_14_WB\temp1.dta", clear
 	drop if ID_2n100!=0 
 	drop if ID_0n100==0
 	drop if ID_1n100==0
 	
 	collapse (sum) transaction_value_tot, by(ID_0n100 ID_1n100 transaction_year iso3 ADM0 ADM1 ID_adm1)
 	rename transaction_value_tot transaction_value_tot_adm1
-	save "$data\Aid\2017_10_05_WB\aID_adm1_missingadm2.dta", replace
+	save "$data\Aid\2017_11_14_WB\aID_adm1_missingadm2.dta", replace
 	*/
 	
 	
-	use "$data\Aid\2017_10_05_WB\IDA_temp1.dta", clear
+	use "$data\Aid\2017_11_14_WB\IDA_temp1.dta", clear
 	//drop if ID_2n100==0 
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
@@ -418,12 +415,12 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 		}
 	drop Disbursementcount_ADM2*4 WBAID_ADM2_LOC*4
 
-	save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2.dta", replace
+	save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2.dta", replace
 
 	
 	
 	* Generate total ADM2 disbursements from all projects
-	use "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2.dta", clear
+	use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2.dta", clear
 	collapse (sum) WBAID_ADM2* Disbursementcount*, by(ID_adm1 transaction_year ADM0 ADM1 ISO3)
 	* Renaming after transformation from ADM1 to ADM2 level
 	renvars WBAID_ADM2 WBAID_ADM2_1loc Disbursementcount_ADM2 / WBAID_ADM1 WBAID_ADM1_1loc Disbursementcount_ADM1  
@@ -437,11 +434,11 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 	label var WBAID_ADM1_1loc_`g' "Value of WB Aid per ADM1 region in sector `g' with only 1 location (location weighted)"
 	label var Disbursementcount_ADM1_`g' " Number of non-negative aid disbursements per region in sector `g'"
 	}	
-	save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1.dta", replace
+	save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1.dta", replace
 
 	****create balanced dataset without gaps (assumption perfect data on aid flows, that is, if there is no data, then it is not missing but no aid at all, = 0) 
 	//ADM2 level
-	use "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2.dta", clear
+	use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2.dta", clear
 	sort ID_adm2 transaction_year
 	egen ID_adm2_num = group(ID_adm2)
 	//Melvin H.L. Wong: 2. tsset Geounit Jahr
@@ -462,10 +459,10 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 	drop years_reverse
 	order transaction_year ID_adm*
 	sort ID_adm* transaction_year
-	save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_tsfill.dta", replace
+	save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_tsfill.dta", replace
 	
 	//ADM1 level
-	use "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1.dta", clear
+	use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1.dta", clear
 	sort ID_adm1 transaction_year
 	egen ID_adm1_num = group(ID_adm1)
 	//Melvin H.L. Wong: 2. tsset Geounit Jahr
@@ -489,7 +486,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 	drop years_reverse
 	order transaction_year ID_adm*
 	sort ID_adm* transaction_year
-	save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_tsfill.dta", replace
+	save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_tsfill.dta", replace
 	
 
 
@@ -498,7 +495,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 
 	
 /*
-use "$data\Aid\2017_10_05_WB\disbursement_ADM.dta", clear
+use "$data\Aid\2017_11_14_WB\disbursement_ADM.dta", clear
 [16:35:21] Kai Gehring: 1. Immer collapse by geounit Jahr
 [16:35:33] Kai Gehring: 2. tsset Geounit Jahr
 [16:35:42] Kai Gehring: 3. tsfill, full
@@ -511,7 +508,7 @@ use "$data\Aid\2017_10_05_WB\disbursement_ADM.dta", clear
 
 //ADM1 level
 
-use "$data\Aid\2017_10_05_WB\disbursement_ADM.dta", clear
+use "$data\Aid\2017_11_14_WB\disbursement_ADM.dta", clear
 [16:35:21] Kai Gehring: 1. Immer collapse by geounit Jahr
 [16:35:33] Kai Gehring: 2. tsset Geounit Jahr
 [16:35:42] Kai Gehring: 3. tsfill, full
@@ -538,12 +535,12 @@ counting of that region in the total_pop
 3. Collapse transaction value by GADM1 region
 */
 ********************************************************************************
-use "$data\Aid\2017_10_05_WB\IDA_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
 drop if ID_0N100==.
 drop if ID_0N100==0
 drop if ID_1N100==.
 drop if ID_1N100==0
-save "$data\Aid\2017_10_05_WB\IDA_temp1.dta", replace   
+save "$data\Aid\2017_11_14_WB\IDA_temp1.dta", replace   
 
 
 
@@ -556,7 +553,7 @@ rename year transaction_year
 rename isum_pop isum_pop_ADM1
 keep if transaction_year>=1995 & transaction_year<=2014
 
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IDA_temp1.dta"      
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IDA_temp1.dta"      
 /*
 Remarks to the merge: Mismatch in using data, as no pop has been calculated for Russia (see tab ADM0 if _merge==2)
 Mismatch from master, because no aid data. Non critical unmatached obs
@@ -641,21 +638,21 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 drop years_reverse ID_adm1_num
 sort ID_adm* transaction_year
 
-save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_Wpop.dta", replace
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_Wpop.dta", replace
 
-erase "$data\Aid\2017_10_05_WB\IDA_temp1.dta"
+erase "$data\Aid\2017_11_14_WB\IDA_temp1.dta"
 
 ********************************************************************************
 //Generate regional shares weighted by population in region (GADM2)
 ********************************************************************************
-use "$data\Aid\2017_10_05_WB\IDA_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
 drop if ID_0N100==.
 drop if ID_0N100==0
 drop if ID_1N100==.
 drop if ID_1N100==0
 drop if ID_2N100==.
 drop if ID_2N100==0
-save "$data\Aid\2017_10_05_WB\IDA_temp1.dta", replace
+save "$data\Aid\2017_11_14_WB\IDA_temp1.dta", replace
 
 //1. merge
 use "$data\ADM\1_1_1_R_pop_GADM2.dta", clear
@@ -665,7 +662,7 @@ rename year transaction_year
 rename isum_pop isum_pop_ADM2
 keep if transaction_year>=1995 & transaction_year<=2014
 
-merge 1:m ID_adm2 transaction_year using "$data\Aid\2017_10_05_WB\IDA_temp1.dta"
+merge 1:m ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IDA_temp1.dta"
 /*
 Remarks to the merge: Mismatch in using data, as no pop has been calculated too small regions (see tab ADM0 if _merge==2)
 Mismatch from master, because no aid data. Non critical unmatached obs
@@ -732,7 +729,7 @@ replace Disbursementcount_ADM2_`g'=0 if Disbursementcount_ADM2_`g'==.
 drop years_reverse ID_adm2_num
 sort ID_adm* transaction_year
 
-save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_Wpop.dta", replace
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_Wpop.dta", replace
 
 
 
@@ -744,7 +741,7 @@ rename year transaction_year
 rename isum_pop isum_pop_ADM1
 keep if transaction_year>=1995 & transaction_year<=2014
 
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IDA_temp1.dta"
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IDA_temp1.dta"
 /*
 Remarks to the merge: Mismatch in using data, as no pop has been calculated too small regions (see tab ADM0 if _merge==2)
 Mismatch from master, because no aid data. Non critical unmatached obs
@@ -811,8 +808,8 @@ replace Disbursementcount_ADM1_`g'=0 if Disbursementcount_ADM1_`g'==.
 drop years_reverse ID_adm1_num
 sort ID_adm* transaction_year
 
-erase "$data\Aid\2017_10_05_WB\IDA_temp1.dta"
- save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_Wpop.dta", replace
+erase "$data\Aid\2017_11_14_WB\IDA_temp1.dta"
+ save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_Wpop.dta", replace
 
 
 ****************************************************
@@ -828,17 +825,16 @@ save "$data\ADM\adm2_neighbors.dta", replace
 
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
 renvars year rid1 isum_pop / transaction_year ID_adm1 isum_pop_ADM1
-tempfile ADM1POP
-save `ADM1POP', replace
+save ADM1POP.dta, replace
 
 use "$data\ADM\1_1_1_R_pop_GADM2.dta", clear
 renvars year rid2 isum_pop / transaction_year ID_adm2 isum_pop_ADM2
-tempfile ADM2POP
-save `ADM2POP', replace
+save ADM2POP.dta, replace
+
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_tsfill.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
+use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_tsfill.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
 drop if transaction_year!=`i' 
 * Mege with adjacent region
 merge 1:m ID_adm2 using "$data\ADM\adm2_neighbors.dta", nogen keep(3 1)
@@ -868,7 +864,7 @@ append using `i'
 keep ID_adm2 WBAID_ADM2_*ADJ* Population_ADM2_ADJ transaction_year Disbursementcount_ADM2*
 
 * Merge Disbursement file with Disbursements in adjacent ADM2 regions
-merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_tsfill.dta", nogen keep(2 3)  
+merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_tsfill.dta", nogen keep(2 3)  
 * Label variables
 label var Population_ADM2_ADJ "Population in all adjacent ADM2 Regions"
 label var WBAID_ADM2_ADJ "World Bank aid in all adjacent ADM2 regions"
@@ -884,7 +880,7 @@ renvars WBAID_ADM2 WBAID_ADM2_ADJ / WBAID_ADM2_LOC WBAID_ADM2_LOC_ADJ
 foreach x in AX BX CX EX FX JX LX TX WX YX{
 renvars WBAID_ADM2_`x' WBAID_ADM2_ADJ_`x' / WBAID_ADM2_LOC_`x' WBAID_ADM2_LOC_ADJ_`x'
 }
-save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_adjacent.dta", replace 
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_adjacent.dta", replace 
 
 
 ** ADM1
@@ -905,7 +901,7 @@ save "$data\ADM\adm1_neighbors.dta", replace
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_tsfill.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
+use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_tsfill.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
 drop if transaction_year!=`i'
 * Merge with adjacent regions						
 merge 1:m ID_adm1 using "$data\ADM\adm1_neighbors.dta", nogen keep(1 3)
@@ -921,19 +917,19 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 renvars WBAID_ADM1_`g' WBAID_ADM1_1loc_`g' / WBAID_ADM1_ADJ_`g'  WBAID_ADM1_1loc_ADJ_`g'
 rename Disbursementcount_ADM1_`g' Disbursementcount_ADM1_ADJ_`g'
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 * Put yearly disbursements together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
-
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
 keep ID_adm1 WBAID_ADM1_*ADJ*  Disbursementcount* transaction_year Population_ADM1_ADJ
 * Merge Disbursement file with Disbursements in adjacent ADM1 regions
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_tsfill.dta", nogen keep(2 3)
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_tsfill.dta", nogen keep(2 3)
 * Label all variables
 label var Population_ADM1_ADJ "Population in neighboring regions"
 label var WBAID_ADM1_ADJ "World Bank aid in all adjacent ADM1 regions"
@@ -949,7 +945,7 @@ renvars WBAID_ADM1 WBAID_ADM1_ADJ / WBAID_ADM1_LOC WBAID_ADM1_LOC_ADJ
 foreach x in AX BX CX EX FX JX LX TX WX YX{
 renvars WBAID_ADM1_`x' WBAID_ADM1_ADJ_`x' / WBAID_ADM1_LOC_`x' WBAID_ADM1_LOC_ADJ_`x'
 }
-save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_adjacent.dta", replace
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_adjacent.dta", replace
 
 
 ****************************************************
@@ -959,7 +955,7 @@ save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_adjacent.dta", replace
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_Wpop.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
+use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_Wpop.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
 drop if transaction_year!=`i' 
 * Mege with adjacent region
 merge 1:m ID_adm2 using "$data\ADM\adm2_neighbors.dta", nogen keep(3 1)
@@ -976,20 +972,21 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 rename WBAID_ADM2_Wpop_`g' WBAID_ADM2_Wpop_ADJ_`g'
 rename Disbursementcount_ADM2_`g' Disbursementcount_ADM2_ADJ_`g'
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 * Put yearly disbursements in adjacent regions together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
 
 keep ID_adm2 WBAID_ADM2_Wpop_ADJ* transaction_year Disbursementcount_ADM2* Population_ADM2_ADJ
 
 * Merge Disbursement file with Disbursements in adjacent ADM2 regions
-merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_Wpop.dta", nogen keep(2 3)  
+merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_Wpop.dta", nogen keep(2 3)  
 * Label variables
 label var Population_ADM2_ADJ "Population in neighboring regions"
 label var WBAID_ADM2_Wpop_ADJ "Pop. weighted World Bank aid in all adjacent ADM2 regions"
@@ -998,14 +995,14 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 label var WBAID_ADM2_Wpop_ADJ "Pop. Weighted World Bank aid in all adjacent ADM2 regions in sector `g'"
 label var Disbursementcount_ADM2_`g' "No. of non-negative WB aid disbursements in adjacent ADM2 regions in sector `g'"
 }
-save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM2_Wpop_adjacent.dta", replace 
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_Wpop_adjacent.dta", replace 
 
 
 ** ADM1
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_Wpop.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
+use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_Wpop.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
 drop if transaction_year!=`i'
 * Merge with adjacent regions						
 merge 1:m ID_adm1 using "$data\ADM\adm1_neighbors.dta", nogen keep(1 3)
@@ -1021,19 +1018,20 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 rename WBAID_ADM1_Wpop_`g' WBAID_ADM1_Wpop_ADJ_`g'
 rename Disbursementcount_ADM1_`g' Disbursementcount_ADM1_ADJ_`g'
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 * Put yearly disbursements together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
-
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
+
 keep ID_adm1 WBAID_ADM1_Wpop_ADJ*  Disbursementcount* transaction_year Population_ADM1_ADJ
 * Merge Disbursement file with Disbursements in adjacent ADM1 regions
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_Wpop.dta", nogen keep(2 3)
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_Wpop.dta", nogen keep(2 3)
 * Label all variables
 label var Population_ADM1_ADJ "Population in neighboring regions"
 label var WBAID_ADM1_Wpop_ADJ "Pop. Weighted World Bank aid in all adjacent ADM1 regions"
@@ -1042,7 +1040,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 label var WBAID_ADM1_Wpop_ADJ_`g' "Pop. Weighted World Bank aid in all adjacent ADM1 regions in sector `g'"
 label var Disbursementcount_ADM1_ADJ_`g' "No. of non-negative WB aid disbursements in adjacent ADM1 regions in sector `g'"
 }
-save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_Wpop_adjacent.dta", replace
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_Wpop_adjacent.dta", replace
 
 
 *******************************
@@ -1050,7 +1048,7 @@ save "$data\Aid\2017_10_05_WB\IDA_disbursement_ADM1_Wpop_adjacent.dta", replace
 *******************************
 
 
-cd "$data\Aid\2017_10_05_WB"
+cd "$data\Aid\2017_11_14_WB"
 
 * Prepare GADM2 regions data in order to be able to attribute Precision Code 4 (ADM1 data) to subregions
 
@@ -1071,8 +1069,7 @@ drop if ISO3==""
 duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
 * drop mulitple entries due to multiple polygons for same region. ok to drop here.
 drop OBJECTID
-tempfile gadm2
-save `gadm2', replace
+save gadm2.dta, replace
 
 * Create yearly population totals
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
@@ -1081,20 +1078,18 @@ rename isum_pop isum_pop_ADM1
 collapse (sum) isum_pop_ADM1, by(isoc3 year)
 renvars isum_pop year / c_pop transaction_year
 label var c_pop "Total Country Population"
-tempfile country_pop
-save `country_pop', replace
+save country_pop.dta, replace
 
 
 *************************@Melvin: Please add data source and access here*****************
 import delimited using "$data\Aid\projects_ancillary.csv", clear delimiter(",")
 * Drop duplicates as these relate only to IEG Evaluations, which we do not consider here
 duplicates drop projectid, force
-tempfile ancillary
-save `ancillary' 
+save ancillary.dta
 * Import matches from AidData-GADM spatial join
 import excel using "$data\Aid\alg.xls", firstrow clear
 rename project_idC254 projectid
-merge m:1 projectid using `ancillary', nogen keep(1 3)
+merge m:1 projectid using ancillary.dta, nogen keep(1 3)
 * Needs to be import excel as important information are lost, if delimited (.csv) is used.
 keep mjsector* sector*pct projectid project_loC254 precision_N100 geoname_idN100 latitudeN1911 longitudeN1911 location_tC254 location_1C254 ISOC3 NAME_0C75  NAME_1C75  NAME_2C75 ID_*
 destring, dpcomma replace
@@ -1118,7 +1113,7 @@ egen ID_adm5 = concat(c ID_0n100 r ID_1n100 r ID_2n100 r ID_3n100 r ID_4n100 r I
 */
 drop c r
 sort project_id
-save "$data\Aid\2017_10_05_WB\alg.dta", replace
+save "$data\Aid\2017_11_14_WB\alg.dta", replace
 
 * Create yearly disbursements (only until 2012 as we do not have disbursement data in subsequent years)
 forvalues i=1995(1)2012 {
@@ -1136,7 +1131,7 @@ label var Disbursementcount "Sum of yearly positive disbursements within project
 drop transaction_value
 
 collapse (mean) transaction_value_tot Disbursementcount, by(project_id transaction_year)
-merge 1:m project_id using "$data\Aid\2017_10_05_WB\alg.dta", nogen keep(3 1)
+merge 1:m project_id using "$data\Aid\2017_11_14_WB\alg.dta", nogen keep(3 1)
 
 /* 
 Now, allocate aid flows that do not correspond to a certain administrative area in the following way
@@ -1184,27 +1179,27 @@ replace Disbursementcount_`g'=Disbursementcount_`g'+Disbursementcount if mjsecto
 gen transaction_value_tot_`g'=aux1+aux2+aux3+aux4+aux5
 drop aux*
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 
 * Put yearly disbursements together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
+append using `i'.dta
+erase `i'.dta
 }
-
+1995.dta
 keep if (precision_N100<=4)
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement.dta", replace
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement.dta", replace
 
 
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement.dta", clear
 keep if (precision_N100==4)
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement4.dta", replace
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
 
 * Prepare location weighted data with precision code 4 (Only ADM1 information)
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement4.dta", replace
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
 gen count=1
 bysort project_id transaction_year: egen totalcount=total(count)
 gen transaction_value_loc=transaction_value_tot/totalcount
@@ -1222,11 +1217,11 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 replace Disbursementcount_`g'=round(Disbursementcount_`g')
 renvars transaction_value_loc_`g' Disbursementcount_`g' / WBAID_ADM1_LOC_`g'4 Disbursementcount_ADM1_`g'4
 }
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_prec4.dta", replace 
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_prec4.dta", replace 
 
 
 * Prepare location weighted data with precision code 4 (ADM2 information)
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement4.dta", replace
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
 joinby ID_adm1 using `gadm2'
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
@@ -1254,11 +1249,10 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 replace Disbursementcount_`g'=round(Disbursementcount_`g')
 renvars transaction_value_loc_`g' Disbursementcount_`g' / WBAID_ADM2_LOC_`g'4 Disbursementcount_ADM2_`g'4
 }
-tempfile Disbursement_ADM2_prec4
-save `Disbursement_ADM2_prec4', replace 
+save Disbursement_ADM2_prec4, replace 
 
 * Prepare population weighted data with precision code 4 (Only ADM1 information)
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement4.dta", replace
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
 renvars transaction_year ID_adm1 / year rid1
 merge m:1 rid1 year using "$data\ADM\1_1_1_R_pop_GADM1.dta", nogen
 renvars year rid1 /  transaction_year ID_adm1
@@ -1282,14 +1276,11 @@ replace Disbursementcount_ADM1_`g'=round(Disbursementcount_ADM1_`g')
 renvars  Disbursementcount_ADM1_`g' /  Disbursementcount_ADM1_`g'4
 }
 keep WBAID* Disbursement* transaction_year ISO3 ADM1 ID_adm1
-tempfile Disbursement_ADM1_Wpop_prec4
-save `Disbursement_ADM1_Wpop_prec4', replace 
-
-
+save Disbursement_ADM1_Wpop_prec4, replace 
 
 * Prepare population weighted data with precision code 4 (ADM2 information)
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement4.dta", replace
-joinby ID_adm1 using `gadm2'
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
+joinby ID_adm1 using gadm2.dta
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
@@ -1322,15 +1313,14 @@ renvars  Disbursementcount_ADM2_`g' /  Disbursementcount_ADM2_`g'4
 replace Disbursementcount_ADM2_`g'4=round(Disbursementcount_ADM2_`g'4)
 }
 keep WBAID* Disbursement* transaction_year ADM1 ADM2 ISO3 ID_adm2 ID_adm1
-tempfile Disbursement_ADM2_Wpop_prec4
-save `Disbursement_ADM2_Wpop_prec4', replace 
+save Disbursement_ADM2_Wpop_prec4, replace 
 
 ********************************************************************************
 //Generate regional shares weighted by number of projects
 ********************************************************************************
 * KG. @Melvin There seem to be errors in the names of some adm2 regions, or not?E.g., that with the ID_2n100 633?
 
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement.dta", clear
 gen count=1
 bysort project_id transaction_year: egen count1=total(count)
 label var count1 "Number of project sites per project per year"  
@@ -1376,30 +1366,30 @@ Pretend that ADM2 regions are ADM1 regions, if the ADM2 regions are missing.
 */
 
 	//bysort ID_0n100 ID_1n100: gen count_region
-	save "$data\Aid\2017_10_05_WB\IBRD_temp1.dta", replace 
+	save "$data\Aid\2017_11_14_WB\IBRD_temp1.dta", replace 
 	
 	/* not necessary anymore, but keep if need to identify regions that are missing
-	use "$data\Aid\2017_10_05_WB\temp1.dta", clear
+	use "$data\Aid\2017_11_14_WB\temp1.dta", clear
 	drop if ID_2n100!=0 
 	drop if ID_0n100==0
 	drop if ID_1n100!=0
 	
 	collapse (sum) transaction_value_tot, by(ID_0n100 transaction_year)
 	rename transaction_value_tot transaction_value_tot_adm0
-	save "$data\Aid\2017_10_05_WB\aID_adm0_missingadm2.dta", replace
+	save "$data\Aid\2017_11_14_WB\aID_adm0_missingadm2.dta", replace
 
-	use "$data\Aid\2017_10_05_WB\temp1.dta", clear
+	use "$data\Aid\2017_11_14_WB\temp1.dta", clear
 	drop if ID_2n100!=0 
 	drop if ID_0n100==0
 	drop if ID_1n100==0
 	
 	collapse (sum) transaction_value_tot, by(ID_0n100 ID_1n100 transaction_year iso3 ADM0 ADM1 ID_adm1)
 	rename transaction_value_tot transaction_value_tot_adm1
-	save "$data\Aid\2017_10_05_WB\aID_adm1_missingadm2.dta", replace
+	save "$data\Aid\2017_11_14_WB\aID_adm1_missingadm2.dta", replace
 	*/
 	
 	
-	use "$data\Aid\2017_10_05_WB\IBRD_temp1.dta", clear
+	use "$data\Aid\2017_11_14_WB\IBRD_temp1.dta", clear
 	//drop if ID_2n100==0 
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
@@ -1428,12 +1418,12 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 		}
 	drop Disbursementcount_ADM2*4 WBAID_ADM2_LOC*4
 
-	save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2.dta", replace
+	save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2.dta", replace
 
 	
 	
 	* Generate total ADM2 disbursements from all projects
-	use "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2.dta", clear
+	use "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2.dta", clear
 	collapse (sum) WBAID_ADM2* Disbursementcount*, by(ID_adm1 transaction_year ADM0 ADM1 ISO3)
 	* Renaming after transformation from ADM1 to ADM2 level
 	renvars WBAID_ADM2 WBAID_ADM2_1loc Disbursementcount_ADM2 / WBAID_ADM1 WBAID_ADM1_1loc Disbursementcount_ADM1  
@@ -1447,11 +1437,11 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 	label var WBAID_ADM1_1loc_`g' "Value of WB Aid per ADM1 region in sector `g' with only 1 location (location weighted)"
 	label var Disbursementcount_ADM1_`g' " Number of non-negative aid disbursements per region in sector `g'"
 	}	
-	save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1.dta", replace
+	save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1.dta", replace
 
 	****create balanced dataset without gaps (assumption perfect data on aid flows, that is, if there is no data, then it is not missing but no aid at all, = 0) 
 	//ADM2 level
-	use "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2.dta", clear
+	use "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2.dta", clear
 	sort ID_adm2 transaction_year
 	egen ID_adm2_num = group(ID_adm2)
 	//Melvin H.L. Wong: 2. tsset Geounit Jahr
@@ -1472,10 +1462,10 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 	drop years_reverse
 	order transaction_year ID_adm*
 	sort ID_adm* transaction_year
-	save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_tsfill.dta", replace
+	save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_tsfill.dta", replace
 	
 	//ADM1 level
-	use "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1.dta", clear
+	use "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1.dta", clear
 	sort ID_adm1 transaction_year
 	egen ID_adm1_num = group(ID_adm1)
 	//Melvin H.L. Wong: 2. tsset Geounit Jahr
@@ -1499,7 +1489,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 	drop years_reverse
 	order transaction_year ID_adm*
 	sort ID_adm* transaction_year
-	save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_tsfill.dta", replace
+	save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_tsfill.dta", replace
 	
 
 
@@ -1508,7 +1498,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 
 	
 /*
-use "$data\Aid\2017_10_05_WB\disbursement_ADM.dta", clear
+use "$data\Aid\2017_11_14_WB\disbursement_ADM.dta", clear
 [16:35:21] Kai Gehring: 1. Immer collapse by geounit Jahr
 [16:35:33] Kai Gehring: 2. tsset Geounit Jahr
 [16:35:42] Kai Gehring: 3. tsfill, full
@@ -1521,7 +1511,7 @@ use "$data\Aid\2017_10_05_WB\disbursement_ADM.dta", clear
 
 //ADM1 level
 
-use "$data\Aid\2017_10_05_WB\disbursement_ADM.dta", clear
+use "$data\Aid\2017_11_14_WB\disbursement_ADM.dta", clear
 [16:35:21] Kai Gehring: 1. Immer collapse by geounit Jahr
 [16:35:33] Kai Gehring: 2. tsset Geounit Jahr
 [16:35:42] Kai Gehring: 3. tsfill, full
@@ -1548,12 +1538,12 @@ counting of that region in the total_pop
 3. Collapse transaction value by GADM1 region
 */
 ********************************************************************************
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement.dta", clear
 drop if ID_0N100==.
 drop if ID_0N100==0
 drop if ID_1N100==.
 drop if ID_1N100==0
-save "$data\Aid\2017_10_05_WB\IBRD_temp1.dta", replace   
+save "$data\Aid\2017_11_14_WB\IBRD_temp1.dta", replace   
 
 
 
@@ -1566,7 +1556,7 @@ rename year transaction_year
 rename isum_pop isum_pop_ADM1
 keep if transaction_year>=1995 & transaction_year<=2014
 
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IBRD_temp1.dta"      
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IBRD_temp1.dta"      
 /*
 Remarks to the merge: Mismatch in using data, as no pop has been calculated for Russia (see tab ADM0 if _merge==2)
 Mismatch from master, because no aid data. Non critical unmatached obs
@@ -1614,7 +1604,7 @@ label var Disbursementcount_ADM1_`g' "No of positive yearly disbursements in sec
 }
 
 * Add data based on precision codes 4:
-merge 1:1 ID_adm1 transaction_year using `Disbursement_ADM1_Wpop_prec4', nogen
+merge 1:1 ID_adm1 transaction_year using Disbursement_ADM1_Wpop_prec4.dta, nogen
 replace WBAID_ADM1_Wpop=0 if WBAID_ADM1_Wpop==.
 replace WBAID_ADM1_Wpop4=0 if WBAID_ADM1_Wpop4==.
 replace WBAID_ADM1_Wpop=WBAID_ADM1_Wpop+WBAID_ADM1_Wpop4
@@ -1651,21 +1641,21 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 drop years_reverse ID_adm1_num
 sort ID_adm* transaction_year
 
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_Wpop.dta", replace
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_Wpop.dta", replace
 
-erase "$data\Aid\2017_10_05_WB\IBRD_temp1.dta"
+erase "$data\Aid\2017_11_14_WB\IBRD_temp1.dta"
 
 ********************************************************************************
 //Generate regional shares weighted by population in region (GADM2)
 ********************************************************************************
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement.dta", clear
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement.dta", clear
 drop if ID_0N100==.
 drop if ID_0N100==0
 drop if ID_1N100==.
 drop if ID_1N100==0
 drop if ID_2N100==.
 drop if ID_2N100==0
-save "$data\Aid\2017_10_05_WB\IBRD_temp1.dta", replace
+save "$data\Aid\2017_11_14_WB\IBRD_temp1.dta", replace
 
 //1. merge
 use "$data\ADM\1_1_1_R_pop_GADM2.dta", clear
@@ -1675,7 +1665,7 @@ rename year transaction_year
 rename isum_pop isum_pop_ADM2
 keep if transaction_year>=1995 & transaction_year<=2014
 
-merge 1:m ID_adm2 transaction_year using "$data\Aid\2017_10_05_WB\IBRD_temp1.dta"
+merge 1:m ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IBRD_temp1.dta"
 /*
 Remarks to the merge: Mismatch in using data, as no pop has been calculated too small regions (see tab ADM0 if _merge==2)
 Mismatch from master, because no aid data. Non critical unmatached obs
@@ -1706,7 +1696,7 @@ label var Disbursementcount_ADM2_`g' "No of positive yearly disbursements in sec
 }
 
 	* Add data with precision code 4
-	merge 1:1 ID_adm2 transaction_year using `Disbursement_ADM2_Wpop_prec4', nogen
+	merge 1:1 ID_adm2 transaction_year using Disbursement_ADM2_Wpop_prec4.dta, nogen
 	replace WBAID_ADM2_Wpop=0 if WBAID_ADM2_Wpop==.
 	replace WBAID_ADM2_Wpop4=0 if WBAID_ADM2_Wpop4==.
 	replace WBAID_ADM2_Wpop=WBAID_ADM2_Wpop+WBAID_ADM2_Wpop4
@@ -1742,7 +1732,7 @@ replace Disbursementcount_ADM2_`g'=0 if Disbursementcount_ADM2_`g'==.
 drop years_reverse ID_adm2_num
 sort ID_adm* transaction_year
 
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_Wpop.dta", replace
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_Wpop.dta", replace
 
 
 
@@ -1754,7 +1744,7 @@ rename year transaction_year
 rename isum_pop isum_pop_ADM1
 keep if transaction_year>=1995 & transaction_year<=2014
 
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IBRD_temp1.dta"
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IBRD_temp1.dta"
 /*
 Remarks to the merge: Mismatch in using data, as no pop has been calculated too small regions (see tab ADM0 if _merge==2)
 Mismatch from master, because no aid data. Non critical unmatached obs
@@ -1821,8 +1811,8 @@ replace Disbursementcount_ADM1_`g'=0 if Disbursementcount_ADM1_`g'==.
 drop years_reverse ID_adm1_num
 sort ID_adm* transaction_year
 
-erase "$data\Aid\2017_10_05_WB\IBRD_temp1.dta"
- save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_Wpop.dta", replace
+erase "$data\Aid\2017_11_14_WB\IBRD_temp1.dta"
+ save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_Wpop.dta", replace
 
 
 ****************************************************
@@ -1838,17 +1828,15 @@ save "$data\ADM\adm2_neighbors.dta", replace
 
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
 renvars year rid1 isum_pop / transaction_year ID_adm1 isum_pop_ADM1
-tempfile ADM1POP
-save `ADM1POP', replace
+save ADM1POP.dta, replace
 
 use "$data\ADM\1_1_1_R_pop_GADM2.dta", clear
 renvars year rid2 isum_pop / transaction_year ID_adm2 isum_pop_ADM2
-tempfile ADM2POP
-save `ADM2POP', replace
+save ADM2POP.dta, replace
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_tsfill.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_tsfill.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
 drop if transaction_year!=`i' 
 * Mege with adjacent region
 merge 1:m ID_adm2 using "$data\ADM\adm2_neighbors.dta", nogen keep(3 1)
@@ -1865,20 +1853,21 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 renvars WBAID_ADM2_`g' WBAID_ADM2_1loc_`g' / WBAID_ADM2_ADJ_`g'  WBAID_ADM2_1loc_ADJ_`g'
 rename Disbursementcount_ADM2_`g' Disbursementcount_ADM2_ADJ_`g'
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 * Put yearly disbursements in adjacent regions together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
 
 keep ID_adm2 WBAID_ADM2_*ADJ* Population_ADM2_ADJ transaction_year Disbursementcount_ADM2*
 
 * Merge Disbursement file with Disbursements in adjacent ADM2 regions
-merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_tsfill.dta", nogen keep(2 3)  
+merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_tsfill.dta", nogen keep(2 3)  
 * Label variables
 label var Population_ADM2_ADJ "Population in all adjacent ADM2 Regions"
 label var WBAID_ADM2_ADJ "World Bank aid in all adjacent ADM2 regions"
@@ -1894,7 +1883,7 @@ renvars WBAID_ADM2 WBAID_ADM2_ADJ / WBAID_ADM2_LOC WBAID_ADM2_LOC_ADJ
 foreach x in AX BX CX EX FX JX LX TX WX YX{
 renvars WBAID_ADM2_`x' WBAID_ADM2_ADJ_`x' / WBAID_ADM2_LOC_`x' WBAID_ADM2_LOC_ADJ_`x'
 }
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_adjacent.dta", replace 
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_adjacent.dta", replace 
 
 
 ** ADM1
@@ -1915,7 +1904,7 @@ save "$data\ADM\adm1_neighbors.dta", replace
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_tsfill.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_tsfill.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
 drop if transaction_year!=`i'
 * Merge with adjacent regions						
 merge 1:m ID_adm1 using "$data\ADM\adm1_neighbors.dta", nogen keep(1 3)
@@ -1931,19 +1920,20 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 renvars WBAID_ADM1_`g' WBAID_ADM1_1loc_`g' / WBAID_ADM1_ADJ_`g'  WBAID_ADM1_1loc_ADJ_`g'
 rename Disbursementcount_ADM1_`g' Disbursementcount_ADM1_ADJ_`g'
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 * Put yearly disbursements together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
-
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
+
 keep ID_adm1 WBAID_ADM1_*ADJ*  Disbursementcount* transaction_year Population_ADM1_ADJ
 * Merge Disbursement file with Disbursements in adjacent ADM1 regions
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_tsfill.dta", nogen keep(2 3)
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_tsfill.dta", nogen keep(2 3)
 * Label all variables
 label var Population_ADM1_ADJ "Population in neighboring regions"
 label var WBAID_ADM1_ADJ "World Bank aid in all adjacent ADM1 regions"
@@ -1959,7 +1949,7 @@ renvars WBAID_ADM1 WBAID_ADM1_ADJ / WBAID_ADM1_LOC WBAID_ADM1_LOC_ADJ
 foreach x in AX BX CX EX FX JX LX TX WX YX{
 renvars WBAID_ADM1_`x' WBAID_ADM1_ADJ_`x' / WBAID_ADM1_LOC_`x' WBAID_ADM1_LOC_ADJ_`x'
 }
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_adjacent.dta", replace
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_adjacent.dta", replace
 
 
 ****************************************************
@@ -1969,7 +1959,7 @@ save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_adjacent.dta", replace
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_Wpop.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_Wpop.dta", clear // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.
 drop if transaction_year!=`i' 
 * Mege with adjacent region
 merge 1:m ID_adm2 using "$data\ADM\adm2_neighbors.dta", nogen keep(3 1)
@@ -1986,20 +1976,21 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 rename WBAID_ADM2_Wpop_`g' WBAID_ADM2_Wpop_ADJ_`g'
 rename Disbursementcount_ADM2_`g' Disbursementcount_ADM2_ADJ_`g'
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 * Put yearly disbursements in adjacent regions together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
 
 keep ID_adm2 WBAID_ADM2_Wpop_ADJ* transaction_year Disbursementcount_ADM2* Population_ADM2_ADJ
 
 * Merge Disbursement file with Disbursements in adjacent ADM2 regions
-merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_Wpop.dta", nogen keep(2 3)  
+merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_Wpop.dta", nogen keep(2 3)  
 * Label variables
 label var Population_ADM2_ADJ "Population in neighboring regions"
 label var WBAID_ADM2_Wpop_ADJ "Pop. weighted World Bank aid in all adjacent ADM2 regions"
@@ -2008,14 +1999,14 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 label var WBAID_ADM2_Wpop_ADJ "Pop. Weighted World Bank aid in all adjacent ADM2 regions in sector `g'"
 label var Disbursementcount_ADM2_`g' "No. of non-negative WB aid disbursements in adjacent ADM2 regions in sector `g'"
 }
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM2_Wpop_adjacent.dta", replace 
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM2_Wpop_adjacent.dta", replace 
 
 
 ** ADM1
 
 * Merge Adjacency matrix with Aid Disbursements in adjacent regions
 forvalues i=1995(1)2012 {
-use "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_Wpop.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
+use "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_Wpop.dta", clear     // The disbursements are matched in this step with the adjacent regions. Afterwards we collapse to receive the sum of the WB Aid in adjacent regions.         
 drop if transaction_year!=`i'
 * Merge with adjacent regions						
 merge 1:m ID_adm1 using "$data\ADM\adm1_neighbors.dta", nogen keep(1 3)
@@ -2031,19 +2022,20 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 rename WBAID_ADM1_Wpop_`g' WBAID_ADM1_Wpop_ADJ_`g'
 rename Disbursementcount_ADM1_`g' Disbursementcount_ADM1_ADJ_`g'
 }
-tempfile `i'
-save `i', replace 
+save `i'.dta, replace 
 }
 * Put yearly disbursements together
 clear
 use 1995
 forvalues i=1996(1)2012 {
-append using `i'
-
+append using `i'.dta
+erase `i'.dta
 }
+erase 1995.dta
+
 keep ID_adm1 WBAID_ADM1_Wpop_ADJ*  Disbursementcount* transaction_year Population_ADM1_ADJ
 * Merge Disbursement file with Disbursements in adjacent ADM1 regions
-merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_Wpop.dta", nogen keep(2 3)
+merge 1:m ID_adm1 transaction_year using "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_Wpop.dta", nogen keep(2 3)
 * Label all variables
 label var Population_ADM1_ADJ "Population in neighboring regions"
 label var WBAID_ADM1_Wpop_ADJ "Pop. Weighted World Bank aid in all adjacent ADM1 regions"
@@ -2052,7 +2044,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 label var WBAID_ADM1_Wpop_ADJ_`g' "Pop. Weighted World Bank aid in all adjacent ADM1 regions in sector `g'"
 label var Disbursementcount_ADM1_ADJ_`g' "No. of non-negative WB aid disbursements in adjacent ADM1 regions in sector `g'"
 }
-save "$data\Aid\2017_10_05_WB\IBRD_disbursement_ADM1_Wpop_adjacent.dta", replace
+save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_Wpop_adjacent.dta", replace
 
 **************************
 **************************
@@ -2080,8 +2072,7 @@ duplicates drop OBJECTID, force
 * 7 Regions are coded wrongly and are dropped. No problem to drop here in data frame. But shapefiles are errorenous
 duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
 drop OBJECTID
-tempfile gadm2
-save `gadm2', replace
+save gadm2.dta, replace
 
 
 *******************
@@ -2089,8 +2080,7 @@ save `gadm2', replace
 ********************
 import excel using "$data\Aid_China\aiddata_china_1_1_1.xlsx", sheet("1) Official Finance") firstrow clear
 rename year transaction_year
-tempfile OF
-save `OF', replace
+save OF.dta, replace
 
 *********************
 * Load GADM-Aid Data
@@ -2108,8 +2098,7 @@ levelsof id_0n100, local(ChinaAidCountries)
 *label var ID_adm1 "Unique identifier for ADM1 region"
 * Keep ID1 Identifier to merge these into ADM2 Data
 keep target_fidn100 id_0n100 id_1n100 join_fidn100  isoc3 name_0c75  name_1c75
-tempfile adm1_v
-save `adm1_v', replace
+save adm1_v.dta, replace
 
 * Load ADM2 data
 import delim using "$data\Aid_China\spatial_join_adm2_chinese_aid.csv", clear
@@ -2190,8 +2179,7 @@ bysort project_id transaction_year: egen preccount=total(precision)
 drop if preccount>0
 keep if precision_n100==1 | precision_n100==2 | precision_n100==3 | precision_n100==4
 drop precision preccount
-tempfile cleaned
-save `cleaned', replace
+save cleaned.dta, replace
 save "$data\Aid\ChinaAid_projects_clean.dta", replace
 /********************************************
 CREATE ADM2 AID DATA
@@ -2229,11 +2217,11 @@ gen COOF_ADM2_LOC123=CAID_LOC123 if flow_classc254=="Vague (Official Finance)" |
 
 * Collapse again to get new ODA and OOF data
 collapse (sum) CODA_ADM2_LOC123 CODA_ADM2_Wpop123 COOF_ADM2_Wpop123 COOF_ADM2_LOC123, by(id_0n100 ID_adm2 ID_adm1 transaction_year)	
-tempfile prec123
-save `prec123', replace
+
+save prec123.dta, replace
 
 * Precision Code 4 (ADM1)
-use `cleaned', clear
+use cleaned.dta, clear
 keep if  precision_n100==4
 * Here we drop first the ADM2 identifiers as we would later merge the data with all underlying ADM2 regions for equal split
 drop ID_adm2
@@ -2287,8 +2275,7 @@ gen COOF_ADM2_LOC4=CAID_ADM2_LOC4 if flow_classc254=="Vague (Official Finance)" 
 * Collapse again to get new ODA and OOF data
 collapse (sum) CODA_ADM2_LOC4 CODA_ADM2_Wpop4 COOF_ADM2_Wpop4 COOF_ADM2_LOC4, by(id_0n100 ID_adm2 ID_adm1 transaction_year)	
 
-tempfile prec4
-save `prec4', replace
+save prec4.dta, replace
 
 
 **********************
@@ -2338,13 +2325,13 @@ replace `g'= 0 if `g' ==.
 }	
 drop years_reverse ID_adm2_num
 sort ID_adm* transaction_year
-tempfile adm2
-save `adm2', replace
+
+save adm2.dta, replace
 
 /********************************************
 CREATE ADM1 AID DATA
 ********************************************/
-use `cleaned', clear
+use cleaned.dta, clear
 
 * Population weighted Aid Disbursements
 bysort project_id transaction_year flow_classc254: egen totpop_ADM1=total(isum_pop_ADM1)
@@ -2388,8 +2375,8 @@ replace `g'= 0 if `g' ==.
 }	
 drop years_reverse ID_adm1_num
 sort ID_adm* transaction_year
-tempfile adm1
-save `adm1', replace
+
+save adm1.dta, replace
 * Note: ADM2 data of location weighted aid cannot be collapsed to ADM1 data, else loss of data
 
 ****************************************************
@@ -2397,18 +2384,18 @@ save `adm1', replace
 ****************************************************
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
 renvars year rid1 isum_pop / transaction_year ID_adm1 isum_pop_ADM1
-tempfile ADM1POP
-save `ADM1POP', replace
+
+save ADM1POP.dta, replace
 
 use "$data\ADM\1_1_1_R_pop_GADM2.dta", clear
 renvars year rid2 isum_pop / transaction_year ID_adm2 isum_pop_ADM2
-tempfile ADM2POP
-save `ADM2POP', replace
+
+save ADM2POP.dta, replace
 
 
 * Need to do this on a yearly basis to prevent odd merges
 forvalues i=2000(1)2012 {
-use `adm2', clear
+use adm2.dta, clear
 keep if transaction_year==`i'
 * Mege with adjacent region
 merge 1:m ID_adm2 using "$data\ADM\adm2_neighbors.dta", nogen keep(3 1)
@@ -2451,12 +2438,12 @@ save "$data\Aid\Chinese_Finance_ADM2_adjacent.dta", replace
 * ADM1 LEVEL
 * Need to do this on a yearly basis to prevent odd merges
 forvalues t=2000(1)2012 {
-use `adm1', clear
+use adm1.dta, clear
 keep if transaction_year==`t'
 * Mege with adjacent region
 merge 1:m ID_adm1 using "$data\ADM\adm1_neighbors.dta", nogen keep(1 3)
 * Merge with data on population 
-merge m:1 ID_adm1 transaction_year using `ADM1POP', nogen keep(3 1)
+merge m:1 ID_adm1 transaction_year using ADM1POP.dta, nogen keep(3 1)
 * Collapse to get sum of WB aid (projects) in adjacent regions
 collapse (sum) CODA_ADM1_LOC COOF_ADM1_LOC  CODA_ADM1_Wpop COOF_ADM1_Wpop isum_pop_ADM1, by(src_ID_admC7 transaction_year)
 * Rename variables to indicate that they are in an adjacent region
@@ -2464,16 +2451,17 @@ foreach v in CODA_ADM1_LOC COOF_ADM1_LOC  CODA_ADM1_Wpop COOF_ADM1_Wpop {
 rename `v' `v'_ADJ
 }
 renvars isum_pop_ADM1 src_ID_admC7 / Population_ADM1_ADJ ID_adm1
-tempfile `t'
-save ``t'', replace
+
+save `t'.dta, replace
 }
 
 * Put yearly disbursements in adjacent regions together
-use `2000', clear
+use 2000.dta, clear
 forvalues t=2001(1)2012 {
-append using ``t''
+append using `t'.dta
+erase `t'.dta
 }
-
+erase 2000.dta
 * Label variables
 label var CODA_ADM1_LOC_ADJ "Chinese ODA-like flows to adjacent regions (location weighted)"
 label var CODA_ADM1_Wpop_ADJ "Chinese ODA-like flows to adjacent regions (population weighted)"
@@ -2481,7 +2469,7 @@ label var COOF_ADM1_LOC_ADJ "Chinese other official finance to adjacent regions 
 label var COOF_ADM1_Wpop_ADJ "Chinese other official finance to adjacent regions (population weighted)"
 label var Population_ADM1_ADJ "Population in adjacent regions"
 * Merge Disbursements in adjacent regions with disbursements in specific region
-merge 1:1 ID_adm1 transaction_year using `adm1', nogen 
+merge 1:1 ID_adm1 transaction_year using adm1.dta, nogen 
 
 
 //some regions do not receive aid, but the adjacent ones. The merge introduces missings for these regions. Code them as getting no aid.
@@ -2517,8 +2505,8 @@ duplicates drop OBJECTID, force
 * 7 Regions are coded wrongly and are dropped. No problem to drop here in data frame. But shapefiles are errorenous
 duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
 drop OBJECTID
-tempfile gadm2
-save `gadm2', replace
+
+save gadm2.dta, replace
 
 
 * Load ADM1 Data for the cases, where no ADM2 shapefile existed
@@ -2533,8 +2521,8 @@ drop c r
 label var ID_adm1 "Unique identifier for ADM1 region"
 keep target_fid ID_adm1_v join_fid id_1 id_0 name_0 iso id_1 name_1 
 renvars join_fid / join_v
-tempfile adm1_v
-save `adm1_v', replace
+
+save adm1_v, replace
 
 
 * Load ADM2 data
@@ -2603,8 +2591,7 @@ bysort project_id transaction_year: egen preccount=total(precision_d)
 drop if preccount>0
 keep if precision_==1 | precision_==2 | precision_==3 | precision_==4
 drop precision_d preccount
-tempfile cleaned
-save `cleaned', replace
+
 save "$data\Aid\IndiaAid_projects_clean.dta", replace
 
 /********************************************
@@ -2692,8 +2679,7 @@ gen IOOF_ADM2_LOC4=IAID_ADM2_LOC4 if flow_type=="OOF" | flow_type=="OOF-like Exp
 * Collapse again to get new ODA and OOF data
 collapse (sum) IODA_ADM2_LOC4 IODA_ADM2_Wpop4 IOOF_ADM2_Wpop4 IOOF_ADM2_LOC4, by(id_0 ID_adm2 ID_adm1 transaction_year)	
 
-tempfile prec4
-save `prec4', replace
+save prec4.dta, replace
 
 
 **********************
@@ -2737,13 +2723,13 @@ replace `g'= 0 if `g' ==.
 }	
 drop years_reverse ID_adm2_num
 sort ID_adm* transaction_year
-tempfile adm2
-save `adm2', replace
+
+save adm2.dta, replace
 
 /********************************************
 CREATE ADM1 AID DATA
 ********************************************/
-use `cleaned', clear
+use cleaned.dta, clear
 
 * Population weighted Aid Disbursements
 bysort project_id transaction_year flow_type: egen totpop_ADM1=total(isum_pop_ADM1)
@@ -2786,8 +2772,8 @@ replace `g'= 0 if `g' ==.
 }	
 drop years_reverse ID_adm1_num
 sort ID_adm* transaction_year
-tempfile adm1
-save `adm1', replace
+
+save adm1.dta, replace
 * Note: ADM2 data of location weighted aid cannot be collapsed to ADM1 data, else loss of data
 
 ****************************************************
@@ -2795,13 +2781,12 @@ save `adm1', replace
 ****************************************************
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
 renvars year rid1 isum_pop / transaction_year ID_adm1 isum_pop_ADM1
-tempfile ADM1POP
-save `ADM1POP', replace
+save ADM1POP.dta, replace
 
 use "$data\ADM\1_1_1_R_pop_GADM2.dta", clear
 renvars year rid2 isum_pop / transaction_year ID_adm2 isum_pop_ADM2
 tempfile ADM2POP
-save `ADM2POP', replace
+save ADM2POP.dta, replace
 
 
 * Need to do this on a yearly basis to prevent odd merges
@@ -2821,16 +2806,16 @@ foreach v in IODA_ADM2_LOC IOOF_ADM2_LOC  IODA_ADM2_Wpop IOOF_ADM2_Wpop {
 rename `v' `v'_ADJ
 }
 renvars isum_pop_ADM2 src_ID_admC12 / Population_ADM2_ADJ ID_adm2
-tempfile `i'
-save ``i'', replace
+save `i'.dta, replace
 }
 
 * Put yearly disbursements in adjacent regions together
 use `2010', clear
 forvalues t=2011(1)2014 {
-append using ``t''
+append using `t'
+erase `i'.dta
 }
-
+erase 2010.dta
 * Label variables
 label var IODA_ADM2_LOC_ADJ "Indian ODA-like flows to adjacent regions (location weighted)"
 label var IODA_ADM2_Wpop_ADJ "Indian ODA-like flows to adjacent regions (population weighted)"
@@ -2849,7 +2834,7 @@ save "$data\Aid\Indian_Finance_ADM2_adjacent.dta", replace
 
 * ADM1 LEVEL
 * Need to do this on a yearly basis to prevent odd merges
-use `adm1', clear
+use adm1.dta, clear
 levelsof transaction_year, local(T)
 foreach t in `T' {
 use `adm1', clear
@@ -2865,16 +2850,16 @@ foreach v in IODA_ADM1_LOC IOOF_ADM1_LOC  IODA_ADM1_Wpop IOOF_ADM1_Wpop {
 rename `v' `v'_ADJ
 }
 renvars isum_pop_ADM1 src_ID_admC7 / Population_ADM1_ADJ ID_adm1
-tempfile `t'
-save ``t'', replace
+save `i'.dta, replace
 }
 
 * Put yearly disbursements in adjacent regions together
-use `2010', clear
+use 2010.dta, clear
 forvalues t=2011(1)2014 {
-append using ``t''
+append using `i'.dta
+erase `i'.dta
 }
-
+erase 2010.dta
 * Label variables
 label var IODA_ADM1_LOC_ADJ "Indian ODA-like flows to adjacent regions (location weighted)"
 label var IODA_ADM1_Wpop_ADJ "Indian ODA-like flows to adjacent regions (population weighted)"
@@ -2918,8 +2903,8 @@ duplicates drop OBJECTID, force
 drop if ISO3==""
 duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
 drop OBJECTID
-tempfile gadm2
-save `gadm2', replace
+
+save gadm2.dta, replace
 
 * Create yearly population totals
 rename ID_adm2 rid2
@@ -2928,8 +2913,8 @@ rename rid2 ID_adm2
 collapse (sum) isum_pop, by(ADM0 year ISO3)
 renvars isum_pop year / c_pop transaction_year
 label var c_pop "Total Country Population"
-tempfile country_pop
-save `country_pop', replace
+
+save country_pop.dta, replace
 
 
 *** Load ACD2EPR Data as a tempfile to create ethnic conflict indicators
@@ -2947,8 +2932,8 @@ bysort id: carryforward statename dyad_dset_n100 gwid sideb sideb_id group gwgro
 drop if from>transaction_year
 drop if to<transaction_year
 collapse (max) claim recruitment support, by(transaction_year dyad_dset_n100)
-tempfile ACD2EPR
-save `ACD2EPR', replace
+
+save ACD2EPR.dta, replace
 
 * Import UCDP data
 import delim using "$data\Conflict data\UCDP GED\ucdp_loc_gadm_cleaned_20171031.csv", clear delimiter(";")
@@ -3002,12 +2987,12 @@ tempfile brdprec1234
 save `brdprec1234', replace
 
 keep if where_prec==4
-tempfile brdprec4
-save `brdprec4', replace
+
+save brdprec4.dta, replace
 
 
 * Prepare location weighted data with precision code 4 (ADM2 information)
-use `brdprec4', replace
+use brdprec4.dta, replace
 gen count=1
 bysort ID_adm1 transaction_year: egen incidence_adm14=total(count)
 
@@ -3017,7 +3002,7 @@ collapse (sum) best_est*  (mean) incidence_adm14, by(transaction_year ISO3 ADM0 
 
 renvars best_estn100 best_est_t1 best_est_t2 best_est_t3g best_est_t3ng / best_est_adm14 best_est_t1_adm14 best_est_t2_adm14 best_est_t3g_adm14 best_est_t3ng_adm14 
 
-joinby ID_adm1 using `gadm2'
+joinby ID_adm1 using gadm2.dta
 gen count=1
 bysort ID_adm1 transaction_year: egen count1=total(count)
 replace count1=0 if count1==.
@@ -3029,11 +3014,11 @@ replace `g'=round(`g')
 renvars best_est_adm14 best_est_t1_adm14 best_est_t2_adm14 best_est_t3g_adm14 best_est_t3ng_adm14   incidence_adm14 / best_est_adm24 best_est_t1_adm24 best_est_t2_adm24 best_est_t3g_adm24 ///
 best_est_t3ng_adm24 incidence_adm24 
 keep best_est_adm24  best_est_t1_adm24 best_est_t2_adm24 best_est_t3g_adm24 best_est_t3ng_adm24  incidence_adm24 transaction_year ISO3 ADM0 ADM1 ID_adm1 ID_adm2 ethnic
-tempfile Conflict_ADM2_prec4
-save `Conflict_ADM2_prec4', replace 
+
+save Conflict_ADM2_prec4.dta, replace 
 
 * Prepare population weighted data with precision code 4 (ADM2 information)
-use `brdprec4', replace
+use brdprec4.dta, replace
 gen count=1
 bysort ID_adm1 transaction_year: egen incidence_adm14=total(count)
 collapse (sum) best_est* (mean) incidence_adm14, by(transaction_year ISO3 ADM0 ADM1 ID_adm1 ethnic)
@@ -3063,11 +3048,10 @@ gen `var'24=(`var'14*isum_pop)/pop_adm1
 replace `var'24=round(`var'24,1)
 }
 keep best_est_adm24 best_est_t1_adm24 best_est_t2_adm24 best_est_t3g_adm24 best_est_t3ng_adm24 incidence_adm24 transaction_year ISO3 ADM0 ADM1 ID_adm1 ID_adm2 ethnic
-tempfile Conflict_Wpop_ADM2_prec4
-save `Conflict_Wpop_ADM2_prec4', replace 
 
+save Conflict_Wpop_ADM2_prec4.dta, replace 
 
-use `brdprec1234', clear
+use brdprec1234.dta, clear
 keep if where_prec==1 | where_prec==2 | where_prec==3
 
 ********************************************************************************
@@ -3082,7 +3066,7 @@ bysort ID_adm2 transaction_year ethnic: egen incidence_adm2=total(count)
 * Some regions miss ADM2 codes. Here we should check if these are similar countries like in the Aid-GADM merge (e.g., Cape Verde, Macedonia, Armenia...)
 collapse (sum) best_est* (mean) incidence_adm2, by(ADM0 ADM1 ADM2  ISO3 transaction_year ID_adm1 ID_adm2 ethnic)
 renvars best_estn100   best_est_t1 best_est_t2 best_est_t3g best_est_t3ng \ best_est_adm2 best_est_t1_adm2 best_est_t2_adm2 best_est_t3g_adm2 best_est_t3ng_adm2
-merge 1:1 ID_adm2 transaction_year ethnic using `Conflict_ADM2_prec4', nogen keep(1 3)
+merge 1:1 ID_adm2 transaction_year ethnic using Conflict_ADM2_prec4.dta, nogen keep(1 3)
 * Replace zeroes
 foreach var in best_est_adm2 best_est_t1_adm2 best_est_t2_adm2 best_est_t3g_adm2 best_est_t3ng_adm2 incidence_adm2 best_est_adm24 best_est_t1_adm24 best_est_t2_adm24 best_est_t3g_adm24 ///
 best_est_t3ng_adm24 incidence_adm24 {
@@ -3427,3 +3411,27 @@ collapse (mean) MEAN AREA, by (OBJECTID transaction_year)
 drop if transaction_year>2012 | transaction_year<1995
 tempfile ADM2NLIGHTS
 save "$data\dataprocessed\ADM2NLIGHTS.dta", replace
+
+
+*xxxxxxxxxx Melvin 14.11.2017: Clean up folder and erase temp file
+erase gadm2.dta
+erase country_pop.dta
+erase Disbursement_ADM2_prec4.dta
+erase Disbursement_ADM1_Wpop_prec4.dta
+erase Disbursement_ADM2_Wpop_prec4.dta
+erase ADM1POP.dta
+erase ADM2POP.dta
+erase ancillary.dta
+erase OF.dta
+erase adm1_v.dta.dta
+erase cleaned.dta
+erase prec123.dta
+erase prec4.dta
+erase adm2.dta
+erase adm1.dta
+erase adm1_v.dta
+erase ACD2EPR.dta
+erase brdprec4.dta
+erase Conflict_ADM2_prec4.dta
+erase Conflict_Wpop_ADM2_prec4.dta
+erase brdprec1234.dta, clear
