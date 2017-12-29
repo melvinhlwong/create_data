@@ -66,27 +66,31 @@ save gadm2, replace
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
 rename country isoc3
 rename isum_pop isum_pop_ADM1
-sss
+
 collapse (sum) isum_pop_ADM1, by(isoc3 year)
 renvars isum_pop year / c_pop transaction_year
 label var c_pop "Total Country Population"
 save country_pop, replace
 
-
-
-*************************@Melvin: Please add data source and access here*****************
-import delimited using "$data\Aid\projects_ancillary.csv", clear delimiter(",")
+/*
+Source of population data. Authors' own calculation based on GPW4 data
+Center for International Earth Science Information Network - CIESIN - Columbia University. 2016. Gridded Population of the World, Version 4 (GPWv4): Population Count Adjusted to Match 2015 Revision of UN WPP Country Totals. Palisades, NY: NASA Socioeconomic Data and Applications Center (SEDAC). http://dx.doi.org/10.7927/H4SF2T42. Accessed 01.Jan 2017.
+*/
+***Prepare aid data***
+import delimited using "$data\Aid\projects_ancillary.csv", clear delimiter(",") //contains sector information
 * Drop duplicates as these relate only to IEG Evaluations, which we do not consider here
+*XXXXXX Melvin 29.12.2017: Checked the duplicates. Ok to use duplicates drop
 duplicates drop projectid, force
-tempfile ancillary
-save `ancillary' 
+save ancillary.dta, replace
 * Import matches from AidData-GADM spatial join
 import excel using "$data\Aid\alg.xls", firstrow clear
 rename project_idC254 projectid
-merge m:1 projectid using `ancillary', nogen keep(1 3)
+merge m:1 projectid using ancillary.dta, nogen keep(1 3) //no mismatch from master (melvin 29.12.2017)
+*XXXXXX Melvin 29.12.2017: @Lennart. Is this comment still relevant
 * Needs to be import excel as important information are lost, if delimited (.csv) is used.
 keep mjsector* sector*pct projectid project_loC254 precision_N100 geoname_idN100 latitudeN1911 longitudeN1911 location_tC254 location_1C254 ISOC3 NAME_0C75  NAME_1C75  NAME_2C75 ID_*
-destring, dpcomma replace
+*XXXXXX Melvin 29.12.2017: destring is not needed anymore
+*destring, dpcomma replace
 rename projectid project_id
 rename latitudeN1911 latitutde
 rename longitudeN1911 longitude
@@ -100,10 +104,10 @@ gen c = "c"
 gen r = "r"
 egen ID_adm1 = concat(c ID_0N100 r ID_1N100)
 egen ID_adm2 = concat(c ID_0N100 r ID_1N100 r ID_2N100)
-/* not useful ids, as many missings	
-egen ID_adm3 = concat(c ID_0n100 r ID_1n100 r ID_2n100 r ID_3n100)
-egen ID_adm4 = concat(c ID_0n100 r ID_1n100 r ID_2n100 r ID_3n100 r ID_4n100)
-egen ID_adm5 = concat(c ID_0n100 r ID_1n100 r ID_2n100 r ID_3n100 r ID_4n100 r ID_5n100)
+/*XXXXXX Melvin 29.12.2017: Note that 512 out of 61440 obs are unmatched with countries and lost
+about 250 have precision codes higher equal 4. 
+Small measurement error but may be solved using nearest region algorithm.
+Stata code: tab precision_N100 if ID_0N100==0
 */
 drop c r
 sort project_id
@@ -112,6 +116,7 @@ save "$data\Aid\2017_11_14_WB\alg.dta", replace
 * Create yearly disbursements (only until 2012 as we do not have disbursement data in subsequent years)
 forvalues i=1995(1)2012 {
 import excel "$data\Aid\IDA_IBRD_transactions.xlsx", firstrow clear
+
 renvars projectid year transactionvalue/  project_id transaction_year transaction_value
 keep if financier=="IDA"
 keep project_id transaction_year transaction_value
@@ -123,8 +128,11 @@ gen count=1 if transaction_value>0
 egen Disbursementcount=total(count), by(project_id transaction_year)
 label var Disbursementcount "Sum of yearly positive disbursements within project" 
 drop transaction_value
-
+/*XXXXXX Melvin 29.12.2017: @Lennart, do you happen to know why some projects 
+are not matched? e.g. project P008275 in the year1995 with 6 disbursments.
+*/
 collapse (mean) transaction_value_tot Disbursementcount, by(project_id transaction_year)
+
 merge 1:m project_id using "$data\Aid\2017_11_14_WB\alg.dta", nogen keep(3 1)
 
 /* 
@@ -159,6 +167,7 @@ rename transaction_value_tot temp_value
 gen transaction_value_tot= temp_totcoded/temp_totlocation*temp_value		
 
 * Replace percentage share with proportional disbursement amounts
+*XXXXXX Melvin 29.12.2017: @Lennart, what is the purpose of this? Could you comment the steps? e.g. why do disbursemnt count sum up?
 forvalues g=1(1)5 {
 replace sector`g'pct=sector`g'pct*transaction_value_tot*0.01
 }
@@ -178,14 +187,14 @@ save `i'.dta, replace
 
 * Put yearly disbursements together
 clear
-use 1995
+use 1995.dta, clear
 forvalues i=1996(1)2012 {
 append using `i'.dta
 erase `i'.dta
 }
 erase 1995.dta
 
-keep if (precision_N100<=4)
+keep if (precision_N100<=4) //note: more than 92% are coded higher than 4 at this stage
 save "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", replace
 
 
@@ -198,6 +207,7 @@ use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 gen count=1
 bysort project_id transaction_year: egen totalcount=total(count)
 gen transaction_value_loc=transaction_value_tot/totalcount
+*XXXXXX Melvin 29.12.2017: @Lennart, what is the purpose of this new disbursement count (general and for the sectors)?
 replace Disbursementcount=Disbursementcount/totalcount
 foreach g in AX BX CX EX FX JX LX TX WX YX{
 gen transaction_value_loc_`g'=transaction_value_tot_`g'/totalcount
@@ -206,6 +216,7 @@ replace Disbursementcount_`g'=Disbursementcount_`g'/totalcount
 
 collapse (sum) transaction_value_loc* Disbursementcount*, by(transaction_year ISO3 ADM0 ADM1 ID_adm1)
 * Round Disbursementcounts to full numbers
+*XXXXXX Melvin 29.12.2017: @Lennart, this creates an error, I guess. The disbursement count for ALB in 1995 is rounded from 0.111 to 0
 replace Disbursementcount=round(Disbursementcount)
 renvars transaction_value_loc Disbursementcount / WBAID_ADM1_LOC4 Disbursementcount_ADM14
 foreach g in AX BX CX EX FX JX LX TX WX YX{
@@ -217,19 +228,22 @@ save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_prec4.dta", replace
 
 * Prepare location weighted data with precision code 4 (ADM2 information)
 use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
-joinby ID_adm1 using `gadm2'
+*XXXXXX Melvin 29.12.2017: @Lennart,what is the advantage of joinby? It creates more observations here
+joinby ID_adm1 using gadm2.dta
+/*XXXXXX Melvin 29.12.2017: The following section is redundant now
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
 	  
 	//create dummy variable indicating if a GADM2 region is missing, thus have been replaced by GADM1 region
 	gen byte missing_GADM2=(ID_2==0 & ID_1!=0)
-
+*/
 
 * Create location weighted values
 gen count=1
 bysort project_id transaction_year: egen totalcount=total(count)
 gen transaction_value_loc=transaction_value_tot/totalcount
+*XXXXXX Melvin 29.12.2017: @Lennart, same comment:what is the purpose of this? Could you comment the steps? e.g. why do disbursemnt count sum up?
 replace Disbursementcount=Disbursementcount/totalcount
 foreach g in AX BX CX EX FX JX LX TX WX YX{
 gen transaction_value_loc_`g'=transaction_value_tot_`g'/totalcount
@@ -238,6 +252,7 @@ replace Disbursementcount_`g'=Disbursementcount_`g'/totalcount
 
 collapse (sum) transaction_value_loc* Disbursementcount*, by(transaction_year ISO3 ADM0 ADM1 ADM2 ID_adm1 ID_adm2)
 * Round to full numbers
+*XXXXXX Melvin 29.12.2017: @Lennart, same as above. rounding error?
 replace Disbursementcount=round(Disbursementcount)
 renvars transaction_value_loc Disbursementcount / WBAID_ADM2_LOC4 Disbursementcount_ADM24
 foreach g in AX BX CX EX FX JX LX TX WX YX{
@@ -245,7 +260,7 @@ replace Disbursementcount_`g'=round(Disbursementcount_`g')
 renvars transaction_value_loc_`g' Disbursementcount_`g' / WBAID_ADM2_LOC_`g'4 Disbursementcount_ADM2_`g'4
 }
 save Disbursement_ADM2_prec4.dta, replace 
-
+sssssssssss
 * Prepare population weighted data with precision code 4 (Only ADM1 information)
 use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 renvars transaction_year ID_adm1 / year rid1
@@ -256,6 +271,7 @@ rename isum_pop isum_pop_ADM1
 bysort project_id transaction_year: egen pop_projects_ADM1=total(isum_pop_ADM1) //create total pop of regions for each project_id and year
 * Create population weighted aid and count variables
 gen WBAID_ADM1_Wpop4=(transaction_value_tot*isum_pop_ADM1)/pop_projects_ADM1
+*XXXXXX Melvin 29.12.2017: @Lennart, same comment:what is the purpose of this? Could you comment the steps? e.g. why do disbursemnt count sum up?
 gen Disbursementcount_ADM1=(Disbursementcount*isum_pop_ADM1)/pop_projects_ADM1
 foreach g in AX BX CX EX FX JX LX TX WX YX{
 gen WBAID_ADM1_Wpop_`g'4=(transaction_value_tot_`g'*isum_pop_ADM1)/pop_projects_ADM1
@@ -2512,8 +2528,9 @@ save gadm2.dta, replace
 
 * Load ADM1 Data for the cases, where no ADM2 shapefile existed
 import delim using "$data\Aid_India\gis_out\i_alg2_adm1.csv", clear
-//manually delete one error in IndianAid Data 
+//manually delete one error in raw IndianAid Data. Confirmed by Gerda Asmussen
 *XXXXXXXXX 06.12.2017 Lennart: Why is it deleted and not corrected? We might have already talked about it and if it is one of those places, which fall into the water and/or drop out anyways, it should be no issue at all.
+*XXXXXXXXX 29.12.2017 Melvin: Is is not a region in the water. Gerda told me that this point is wrongly coded in the raw data. The drop must remain.
 drop if place_name=="Pochampally Handloom Park"
 * Generate unique identifier for each ADM region:
 gen c = "c"
@@ -2529,7 +2546,7 @@ save adm1_v, replace
 
 * Load ADM2 data
 import delim using "$data\Aid_India\gis_out\i_alg2_adm2.csv", clear
-//manually delete one error in IndianAid Data 
+//manually delete one error in raw IndianAid Data. Confirmed by Gerda Asmussen 
 drop if place_name=="Pochampally Handloom Park"
 //clear entries from errors if no ADM2 regions identified; otherwise missing id_0 and id_1 entries
 drop id_0 name_0 iso id_1 name_1 
