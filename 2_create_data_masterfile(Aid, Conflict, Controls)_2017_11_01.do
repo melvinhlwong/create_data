@@ -2493,6 +2493,8 @@ cd "$data"
 import delim using "$data\ADM\gadm28adm2.csv", clear
 keep objectidn100 isoc3 id_0n100 name_0c75 id_1n100 name_1c75 name_2c75 id_2n100
 renvars objectidn100 isoc3  name_0c75 name_1c75 name_2c75  / OBJECTID ISO3 ADM0 ADM1 ADM2 
+drop if ISO3==""
+
 * Generate unique identifier for each ADM region:
 gen c = "c"
 gen r = "r"
@@ -2500,7 +2502,6 @@ egen ID_adm1 = concat(c id_0n100 r id_1n100)
 egen ID_adm2 = concat(c id_0n100 r id_1n100 r id_2n100)
 drop c r  id_0n100 id_1n100 id_2n100
 label var ID_adm2 "Unique identifier for ADM2 region"
-drop if ISO3==""
 duplicates drop OBJECTID, force
 * 7 Regions are coded wrongly and are dropped. No problem to drop here in data frame. But shapefiles are errorenous
 duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
@@ -2511,7 +2512,8 @@ save gadm2.dta, replace
 
 * Load ADM1 Data for the cases, where no ADM2 shapefile existed
 import delim using "$data\Aid_India\gis_out\i_alg2_adm1.csv", clear
-//manually delete one error in IndianAid Data
+//manually delete one error in IndianAid Data 
+*XXXXXXXXX 06.12.2017 Lennart: Why is it deleted and not corrected? We might have already talked about it and if it is one of those places, which fall into the water and/or drop out anyways, it should be no issue at all.
 drop if place_name=="Pochampally Handloom Park"
 * Generate unique identifier for each ADM region:
 gen c = "c"
@@ -2527,6 +2529,7 @@ save adm1_v, replace
 
 * Load ADM2 data
 import delim using "$data\Aid_India\gis_out\i_alg2_adm2.csv", clear
+//manually delete one error in IndianAid Data 
 drop if place_name=="Pochampally Handloom Park"
 //clear entries from errors if no ADM2 regions identified; otherwise missing id_0 and id_1 entries
 drop id_0 name_0 iso id_1 name_1 
@@ -2567,7 +2570,7 @@ label var ID_adm2 "Unique identifier for ADM2 region"
 keep if  flow_type=="ODA" | flow_type=="OOF" | flow_type=="OOF-like Export Credit"
 
 
-* Merge with population data
+* Merge with population data (m:1 as we did so far not collapse the project data into singular disbursements)
 renvars ID_adm1 ID_adm2 transaction_year / rid1 rid2 year
 merge m:1 rid2 year using "$data\ADM\1_1_1_R_pop_GADM2.dta", nogen keep(1 3)
 rename isum_pop isum_pop_ADM2
@@ -2584,7 +2587,7 @@ renvars rid1 rid2 year / ID_adm1 ID_adm2 transaction_year
 *******************************************************
 * Precision Code 1-4 (ADM1 and more precise)
 gen precision_d=0
-* Generate a counter, which is one for projects that contain information, which are coded less precise than ADM1
+* Generate a counter, which is one for projects that contain information / flows, which are coded less precise than ADM1
 replace precision_d=1 if precision_>4
 bysort project_id transaction_year: egen preccount=total(precision_d)
 * Drop Projects, which contain flows that are coded less precise than ADM1, as most flows might be going to the central government
@@ -2603,6 +2606,7 @@ gen precision_d=0
 * Generate a counter, which is one for projects that contain information, which are coded less precise than ADM2
 replace precision_d=1 if precision_>3
 bysort project_id transaction_year: egen preccount=total(precision_d)
+* Drop Projects, which contain flows that are coded less precise than ADM2, as most flows might be going to the central government
 keep if (precision_==1 | precision_==2 | precision_==3) & preccount==0
 
 
@@ -2643,15 +2647,18 @@ drop ID_adm2
 duplicates drop project_id transaction_year ID_adm1, force
 * We do not need to clean for more precise projects, because we already excluded all less precise projects with precision code 1-3
 
+
+* XXXX 06.12.2017 Lennart: Usually m:m merges are slightly problematic as they often do not merge all the possible observations. However, here it seems suitable. Do all agree?
 * Here we merge the aid data from the ADM1 level with all possible ADM2 regions to achieve proportional splits across population and locations
 merge m:m  ID_adm1 using `gadm2', nogen keep(1 3) //drop if _merge==2 as not aid data but only geographic data
 
-* Create update ID_2s
+* Create updated ID_2s
 * Generate unique identifier for each ADM region:
 gen c = "c"
 gen r = "r"
 egen ID_adm2_v = concat(c id_0 r id_1 r id_2)
-replace ID_adm2=ID_adm2_v if ID_adm2==""
+* XXXX 06.12.2017 Lennart:  This line is not needed anymore, potentially as we drop region ""Pochampally Handloom Park""
+* replace ID_adm2=ID_adm2_v if ID_adm2==""
 drop c r ID_adm2_v
 * Merge Precision code 4 data (master) with population data (using) for population weighted aid flows
 renvars transaction_year ID_adm2 / year rid2
@@ -2686,6 +2693,7 @@ save prec4.dta, replace
 * Merge Data from different Precision Codes
 **********************
 merge 1:1 ID_adm2 transaction_year using `prec123', nogen
+*XXXX 06.12.2017 Lennart: Could we drop this part from our do-file?
 //Due to merge, ID_adm1 identifier vanished. Recover them from ID_adm2
 *gen temp1=regexr(ID_adm2, "c[0-9]+r[0-9]+", "") //erase part I am interested first
 *gen temp2=strlen(temp1) //get character count of part I do not want
@@ -2694,7 +2702,7 @@ merge 1:1 ID_adm2 transaction_year using `prec123', nogen
 *replace ID_adm1=substr(ID_adm2,1,temp4)
 *drop temp*
 
-//continue with aid data preparation
+//continue with aid data preparation by setting missings to zero in order to be able to add steps up
  foreach l in Wpop123 LOC123 LOC4 Wpop4{
 replace IODA_ADM2_`l'=0 if IODA_ADM2_`l'==.
 replace IOOF_ADM2_`l'=0 if IOOF_ADM2_`l'==.
@@ -2746,7 +2754,7 @@ gen IOOF_ADM1_Wpop=IAID_Wpop_ADM1 if flow_type=="OOF" | flow_type=="OOF-like Exp
 gen IODA_ADM1_LOC=IAID_LOC_ADM1 if flow_type=="ODA"
 gen IOOF_ADM1_LOC=IAID_LOC_ADM1 if flow_type=="OOF" | flow_type=="OOF-like Export Credit"
 
-//continue with aid data preparation
+//continue with aid data preparation by setting missings to zero in order to be able to collapse correctly
  foreach l in Wpop LOC{
 replace IODA_ADM1_`l'=0 if IODA_ADM1_`l'==.
 replace IOOF_ADM1_`l'=0 if IOOF_ADM1_`l'==.
@@ -2775,6 +2783,7 @@ sort ID_adm* transaction_year
 
 save adm1.dta, replace
 * Note: ADM2 data of location weighted aid cannot be collapsed to ADM1 data, else loss of data
+* XXXXXXXXXXX 06.12.2017 Lennart: Is this due to missing ADM2 data (white polygons) or something else? Otherwise we should discuss this point for the further cleaning process as it might be also relevant for other data.
 
 ****************************************************
 * Generate location weighted Aid in adjacent regions 
@@ -2809,7 +2818,8 @@ renvars isum_pop_ADM2 src_ID_admC12 / Population_ADM2_ADJ ID_adm2
 save `i'.dta, replace
 }
 
-* Put yearly disbursements in adjacent regions together
+* Put yearly disbursements in adjacent regions together (here only 2010 is used as we do not have any aid disbursements in previous years 
+* XXXXXXXXXXX 06.12.2017 Lennart: We need to discuss if we take Indian aid into account for main analyses. If we would really do this, we should also consider using the complete conflict sample (so far we use only data up to 2012 as we focus on WB aid).
 use `2010', clear
 forvalues t=2011(1)2014 {
 append using `t'
@@ -2854,7 +2864,10 @@ save `i'.dta, replace
 }
 
 * Put yearly disbursements in adjacent regions together
+
 use 2010.dta, clear
+
+* XXXXXXXXXXX 06.12.2017 Lennart: We need to discuss if we take Indian aid into account for main analyses. If we would really do this, we should also consider using the complete conflict sample (so far we use only data up to 2012 as we focus on WB aid).
 forvalues t=2011(1)2014 {
 append using `i'.dta
 erase `i'.dta
@@ -2876,6 +2889,8 @@ replace `var'=0 if `var'==.
 
 
 save "$data\Aid\Indian_Finance_ADM1_adjacent.dta", replace 
+
+
 
 
 ***************************
