@@ -225,7 +225,24 @@ save "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", replace
 
 use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
 
+/*XXXXXX Melvin 30.12.2017:
+Major error in the next section: We take the discounted project aid (transaction_value_tot)
+and divide it by the count of precision4 project locations, call it aid flowing to 
+the adm2 regions and later add them up to overall aid. This is wrong and we
+sum ap more aid than there is.
 
+We ought to do:
+1) Assign an equal weight to all project locations
+(if there are 3 locations, each location receives a weight of 1/3)
+2) Multiply the weight with the project aid amount
+(note: A collapse on ADM1 now would give the aid amount of each ADM1 region)
+3) Subset the precision code 4 project, join all ADM2 regions for each ADM1 region with a project
+4) calculate the equal weight for each ADM2 WITHIN each ADM1 region
+5) allocate the precision4 aid amount to each ADM2 region by multiplying the weight with
+the collapsed ADM1 aid amount from step 2
+
+At the end, the precision code 4 aid for ADM2 regions is = aid*adm1weight*adm2weight
+*/
 keep if (precision_N100==4)
 save "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
 
