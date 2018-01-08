@@ -42,10 +42,7 @@ gen c = "c"
 gen r = "r"
 egen ID_adm1 = concat(c id_0n100 r id_1n100)
 egen ID_adm2 = concat(c id_0n100 r id_1n100 r id_2n100)
-drop c r
-rename id_0n100 ID_0N100
-rename id_1n100 ID_1N100
-rename id_2n100 ID_2N100
+drop c r  id_0n100 id_1n100 id_2n100
 label var ID_adm2 "Unique identifier for ADM2 region"
 
 /*XXXXXXXXX Melvin 08.11.2017: Recode missing ADM2 regions as ADM1 */
@@ -63,11 +60,9 @@ duplicates drop ID_adm2 ID_adm1 ADM0 ADM1 ADM2, force
 * drop mulitple entries due to multiple polygons for same region. ok to drop here, since we are interested in the region's existence and not single polygons comprising them.
 drop OBJECTID
 
-save gadm2.dta, replace
+save gadm2, replace
 
 * Create yearly population totals
-*XXXXXXXXX Melvin 30.01.2017: Population data has been updated. Major errors corrected for GAMD1 and GADM2
-*XXXXXXXXX Melvin 30.01.2017: GREG population data is outstanding and has to be computed
 use "$data\ADM\1_1_1_R_pop_GADM1.dta", clear
 rename country isoc3
 rename isum_pop isum_pop_ADM1
@@ -87,13 +82,13 @@ import delimited using "$data\Aid\projects_ancillary.csv", clear delimiter(",") 
 *XXXXXX Melvin 29.12.2017: Checked the duplicates. Ok to use duplicates drop
 duplicates drop projectid, force
 save ancillary.dta, replace
-** Import matches from AidData-GADM spatial join (Needs to be import excel as important information are lost, if delimited (.csv) is used.) 
+* Import matches from AidData-GADM spatial join
 import excel using "$data\Aid\alg.xls", firstrow clear
 rename project_idC254 projectid
 merge m:1 projectid using ancillary.dta, nogen keep(1 3) //no mismatch from master (melvin 29.12.2017)
-*XXXXXX Melvin 29.12.2017: @Lennart. Is this comment still relevant?
-* XXXXXX Lennart 03.01.2018: @ Melvin: Moved it upwards as it is not needed here anymore.
-keep mjsector* sector*pct projectid project_loC254 precision_N100 geoname_idN100 latitudeN1911 longitudeN1911 location_tC254 location_1C254 ISOC3 NAME_0C75  NAME_1C75  NAME_2C75 ID_0N100 ID_1N100 ID_2N100
+*XXXXXX Melvin 29.12.2017: @Lennart. Is this comment still relevant
+* Needs to be import excel as important information are lost, if delimited (.csv) is used.
+keep mjsector* sector*pct projectid project_loC254 precision_N100 geoname_idN100 latitudeN1911 longitudeN1911 location_tC254 location_1C254 ISOC3 NAME_0C75  NAME_1C75  NAME_2C75 ID_*
 *XXXXXX Melvin 29.12.2017: destring is not needed anymore
 *destring, dpcomma replace
 rename projectid project_id
@@ -103,17 +98,6 @@ rename NAME_0C75 ADM0
 rename NAME_1C75 ADM1
 rename NAME_2C75 ADM2
 rename ISOC3 ISO3
-/*
-The spatial join in ArcGIS does not consider if the aid loaction points match the precision
-of the map provided. That is, If there are aid points with precision codes only valid for ADM1 but 
-an ADM2 map is given, ArcGIS assumes that the point belongs to the underlying ADM2 region,
-despite the arbitrary point setting, most likely the cetroid of the ADM1 region.
-
-Thus, if the precision codes are only valid for ADM1, we must delete the existing
-ADM2 IDs to avoid erroreneous merges later.
-*/
-replace ADM2="" if precision_N100>=4
-replace ID_2N100=. if precision_N100>=4
 
 *create unique region ids
 gen c = "c"
@@ -129,31 +113,9 @@ drop c r
 sort project_id
 save "$data\Aid\2017_11_14_WB\alg.dta", replace
 
-********************************************************************************
-//1) Create yearly disbursements data discounted by information loss
-********************************************************************************
-/* 
-(only until 2012 as we do not have disbursement data in subsequent years)
-This dataset will contain the variable transaction_value_tot
-which the total project aid for each year, discounted by the informtion loss due to
-imprecise geo-codes.
-*/
+* Create yearly disbursements (only until 2012 as we do not have disbursement data in subsequent years)
 forvalues i=1995(1)2012 {
 import excel "$data\Aid\IDA_IBRD_transactions.xlsx", firstrow clear
-/*XXXXXX Melvin 05.01.2018 @Kai disbursements are sometimes negative. Should we drop them to avoid miscounting locations?
-I checked the WorldBank transaction file for Project P000603
-
-Jun, 2009	IDAN0310	Fees			37.788,94
-Jun, 2009	IDAN0310	Repayment		78.302,85
-Sep, 2009	IDAN0310	Disbursement	-92.437,99
-Okt, 2009	IDAN0310	Disbursement	-39.091,19
-Nov, 2009	IDAN0310	Fees			29.005,87
-Nov, 2009	IDAN0310	Repayment		81.084,39
-Nov, 2009	IDAN0310	Cancellations	170.268,45
-
-Is this an error of the WB? Unlikely, as there are more than 200 Project_id containing negative disbursment amounts. What is your opinion?
-*/
-drop if transactionvalue<0 //4346 out of 149848 transaction coded as missing (about 3%)
 
 renvars projectid year transactionvalue/  project_id transaction_year transaction_value
 keep if financier=="IDA"
@@ -217,15 +179,13 @@ gen count=1 if precision_N100<4
 egen temp_totcoded13=total(count), by(project_id transaction_year)
 drop count
 
-//temp_projsum: Total amount of project amount to be allocated to different regions after discounting for information loss
+//temp_projsum: Total amount of project amount to be allocated to different regions 
 rename transaction_value_tot temp_value																
 gen transaction_value_tot= temp_totcoded/temp_totlocation*temp_value		
 
 * Create sectoral disbursements (& counts)
 *XXXXXX Melvin 29.12.2017: @Lennart, what is the purpose of this? Could you comment the steps? e.g. why do disbursemnt count sum up?
-* XXXXX Lennart 03.01.2018: @ Melvin: I now coded it as a tempfile, so the transformation stays more tracable 
 forvalues g=1(1)5 {
-*XXXXXX Melvin 05.01.2018: @Lennart, could you ellaborate on the following line?
 gen aux`g'pct=sector`g'pct*transaction_value_tot*0.01
 }
 * Sum up disbursement amounts of different purposes as these are ranked by percentage share in total disbursement (e.g., sometimes education might be mjsector1 for a schooling project, but for the next project of a new apprenticeship program only mjsector2)
@@ -236,7 +196,6 @@ gen aux`t'=0
 replace aux`t'=aux`t'pct if mjsector`t'code=="`g'"
 replace Disbursementcount_`g'=Disbursementcount_`g'+Disbursementcount if mjsector`t'code=="`g'"
 }
-* XXXX Lennart 03.01.2018: Add all sectoral shares times total disbursement amount up as we need to go through the whole ranking (e.g., sometimes sanitation is the first sector, but sometimes only the fifth). 
 gen transaction_value_tot_`g'=aux1+aux2+aux3+aux4+aux5
 drop aux1 aux2 aux3 aux4 aux5
 }
@@ -253,39 +212,25 @@ erase `i'.dta
 }
 erase 1995.dta
 
-keep if (precision_N100<=4) //note: more than 92% are coded higher than 4 at this stage
-sort project_id transaction_year
+keep if precision_N100<=4 //note: more than 92% are coded higher than 4 at this stage
 save "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", replace
 
-********************************************************************************
-//2) Prepare location weighted data with precision code
-********************************************************************************
-*****Generate location weighted data with precision code 1-3 (ADM2 information) for ADM2 level****
-use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
- 
+* XXXXXXXX Lennart 04.01.2018: Generate location weighted data with precision code 1-3 (ADM2 information) for ADM2 level
 keep if precision_N100<4
+* XXXXXXXXXX Lennart 04.01.2018: Generate location count to allocate aid proportionally to the respective location
+gen count=1
+bysort project_id transaction_year: egen totalcount=total(count)
 
 * XXXXXXXX Lennart 04.01.2018: Allocate aid according to the number of locations and the general share of precison-123-locations per project //
 * For instance 100 [transaction_value_tot] / 3 (number of projects coded with precision 1-3) [totalcount] * 3/8 (number of projects with precision1-3/number of projects with precision1-4) [temp_totcoded4/temp_totcoded]
-/*XXXXXX Melvin 05.01.2018: @Lennart, why is transaction_value_loc not just transaction_value_tot/totalcount 
-(total number of projects with prec13 AND prec4), but additionally multiplied by (temp_totcoded13/temp_totcoded)?
-
-In fact, transaction_value_loc are the same for a project ID and year when comparing keeping precision<4 and ==4
-e.g. br project_id transaction_year temp_value precision_N100  transaction_value_tot transaction_value_loc if project_id=="P000603"
-
-*/
-*XXXXXX Melvin 05.01.2018: @Lennart totalcount and temp_totcoded13 are always the same and will always cancel each other out. Hence, transaction_value_loc is de facto transaction_value_tot/temp_totcoded
-*XXXXXX Melvin 05.01.2018: deleted and changed after correspondence with Lennart
-gen transaction_value_loc=transaction_value_tot/temp_totcoded
+gen transaction_value_loc=transaction_value_tot/totalcount*(temp_totcoded13/temp_totcoded)
 * XXX Lennart 04.01.2018: Apply this allocation scheme to the disbursementcount
-replace Disbursementcount=Disbursementcount/temp_totcoded
+replace Disbursementcount=Disbursementcount/totalcount*(temp_totcoded13/temp_totcoded)
 * XXXXXXX Lennart 04.01.2018: Redo Excercise for sectoral disbursements
 foreach g in AX BX CX EX FX JX LX TX WX YX{
-gen transaction_value_loc_`g'=transaction_value_tot_`g'/temp_totcoded
-replace Disbursementcount_`g'=Disbursementcount_`g'/temp_totcoded
+gen transaction_value_loc_`g'=transaction_value_tot_`g'/totalcount*(temp_totcoded13/temp_totcoded)
+replace Disbursementcount_`g'=Disbursementcount_`g'/totalcount*(temp_totcoded13/temp_totcoded)
 }
-
-*XXXXXX Melvin 05.01.2018: @Lennart, is this collapse correct? There are some regions where ID_2 is "." 
 * Collapse on ADM2 level to aggregate all project disbursements per ADM2 region
 collapse (sum) transaction_value_loc* Disbursementcount*, by(transaction_year ISO3  ADM0 ADM1 ADM2 ID_0 ID_1 ID_2 ID_adm1 ID_adm2)
 
@@ -296,23 +241,32 @@ renvars transaction_value_loc_`g' Disbursementcount_`g' / WBAID_ADM2_LOC_`g'13 D
 }
 save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_prec13.dta", replace 
 
+* XXXXXXXX Lennart 04.01.2018: Generate location weighted data with precision code 1-3 (ADM2 information) for ADM1 level via collapse
+collapse (sum) WBAID_ADM2* Disbursementcount_ADM2*, by(transaction_year ISO3  ADM0 ADM1 ID_0 ID_1  ID_adm1)
+* Rename Variables
+renvars WBAID_ADM2_LOC13 Disbursementcount_ADM213 / WBAID_ADM1_LOC13 Disbursementcount_ADM113
+foreach g in AX BX CX EX FX JX LX TX WX YX{
+renvars WBAID_ADM2_LOC_`g'13 Disbursementcount_ADM2_`g'13 / WBAID_ADM1_LOC_`g'13 Disbursementcount_ADM1_`g'13
+}
+save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_prec13.dta", replace 
 
-**** Generate location weighted data with precision code 4 (Only ADM1 information) for ADM1 level**** 
+
+* Generate location weighted data with precision code 4 (Only ADM1 information) for ADM1 level 
 use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
 keep if (precision_N100==4)
-
+* XXXXXXXXXX Lennart 04.01.2018: Generate location count to allocate aid proportionally to the respective location
+gen count=1
+bysort project_id transaction_year: egen totalcount=total(count)
 * XXXXXXXX Lennart 04.01.2018: Allocate aid according to the number of locations and the general share of precison-4-locations per project //
 * For instance 100 [transaction_value_tot] / 5 (number of projects coded with precision 4) [totalcount] * 5/8 (number of projects with precision4/number of projects with precision1-4) [temp_totcoded4/temp_totcoded]
-*XXXXXX Melvin 05.01.2018: @Lennart totalcount and temp_totcoded4 are always the same and will always cancel each other out. Hence, transaction_value_loc is de facto transaction_value_tot/temp_totcoded
-*XXXXXX Melvin 05.01.2018: deleted and changed after correspondence with Lennart
-gen transaction_value_loc=transaction_value_tot/temp_totcoded
+gen transaction_value_loc=transaction_value_tot/totalcount*(temp_totcoded4/temp_totcoded)
 *XXXXXX Melvin 29.12.2017: @Lennart, what is the purpose of this new disbursement count (general and for the sectors)?
 * XXXXXXXX Lennart 04.01.2018: @ Melvin, this is also a location weighted allocation of disbursementcounts. This corresponds most closely to the approach for the amounts. We could discuss if this is meaningful.
-replace Disbursementcount=Disbursementcount/temp_totcoded
+replace Disbursementcount=Disbursementcount/totalcount*(temp_totcoded4/temp_totcoded)
 * XXXXXXX Lennart 04.01.2018: Redo Excercise for sectoral disbursements
 foreach g in AX BX CX EX FX JX LX TX WX YX{
-gen transaction_value_loc_`g'=transaction_value_tot_`g'/temp_totcoded
-replace Disbursementcount_`g'=Disbursementcount_`g'/temp_totcoded
+gen transaction_value_loc_`g'=transaction_value_tot_`g'/totalcount*(temp_totcoded4/temp_totcoded)
+replace Disbursementcount_`g'=Disbursementcount_`g'/totalcount*(temp_totcoded4/temp_totcoded)
 }
 
 collapse (sum) transaction_value_loc* Disbursementcount*, by(transaction_year ISO3 ID_0 ID_1 ADM0 ADM1 ID_adm1)
@@ -324,6 +278,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 renvars transaction_value_loc_`g' Disbursementcount_`g' / WBAID_ADM1_LOC_`g'4 Disbursementcount_ADM1_`g'4
 }
 save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_prec4.dta", replace 
+
 
 * Prepare location weighted data with precision code 4 (ADM2 information)
 /*
@@ -344,22 +299,23 @@ joinby ID_adm1 using gadm2.dta
 forvalues i=1995(1)2012 {
 use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_prec4.dta", replace
 keep if transaction_year==`i'
-merge 1:m ID_adm1 using gadm2.dta, nogen keep(1 3)
+merge 1:m ID_adm1 using gadm2.dta, nogen keep (1 3)
 save `i', replace
 }
 * Put yearly disbursements together
+clear
 use 1995.dta, clear
 forvalues i=1996(1)2012 {
 append using `i'.dta
 erase `i'.dta
 }
-erase 1995.dta
+
 
 * XXXX Lennart 04.01.2018: Split ADM1 level aid of precision 4 equally across corresponding ADM2 regions
 gen count=1
 bysort ID_adm1 transaction_year: egen totalcount=total(count)
 
-* allocate aid with prec4 to all ADM2 regions 
+
 gen WBAID_ADM2_LOC4 =WBAID_ADM1_LOC4 /totalcount
 *XXXXXX Melvin 29.12.2017: @Lennart, same comment:what is the purpose of this? Could you comment the steps? e.g. why do disbursemnt count sum up?
 * XXXXXX Lennart 04.01.2018: @ Melvin: This is to distribute the disbursement / transaction count analogously to the aid amounts.
@@ -378,50 +334,54 @@ save "$data\Aid\2017_11_14_WB\IDA_Disbursement_ADM2_prec4.dta", replace
 
 * XXXXXXXXXX Lennart 04.01.2018: Merge data with precision code 4 and precision codes 1-3 to create location weighted aid on ADM2 level
 use "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_prec13.dta", clear
-
+	//drop if ID_2n100==0 
+	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
+	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
+	  
+	//create dummy variable indicating if a GADM2 region is missing, thus have been replaced by GADM1 region
+	gen byte missing_GADM2=(ID_2==0 & ID_1!=0)
+	
 *	collapse (sum) transaction_value_adm2 (max) missing_GADM2, by(ID_adm2 transaction_year ID_adm1 ADM0 ADM1 ADM2 ID_1N100 ID_0N100 ID_2N100 ISO3) // @ Melvin: Shouldn't we drop duplicates of project_ids here as we already summed up the values for different locations of one project. I am not sure, but would be better to double check.
 *	XXXXXX Lennart, 05.01.2018: In the following step we lose around 200 million of aid (0.32% of total allocated aid), which could not be attributed to regions preivously as we had no ID_0, which indicates that something with the geo-merge went wrong
-drop if ID_0==0 //No geographic information available for AID projects (Missing Aid information worth about 5bn USD)
+	drop if ID_0==0 //No geographic information available for AID projects (Missing Aid information worth about 5bn USD)
 	
 	
-* XXXXX Lennart 04.01.2018: Rename variables with precisioncode 1-3 to prepare them for merge with precisioncode 4
-renvars WBAID_ADM2_LOC13 Disbursementcount_ADM213 / WBAID_ADM2_LOC Disbursementcount_ADM2_LOC
+	* XXXXX Lennart 04.01.2018: Rename variables with precisioncode 1-3 to prepare them for merge with precisioncode 4
+	renvars WBAID_ADM2_LOC13 Disbursementcount_ADM213 / WBAID_ADM2_LOC Disbursementcount_ADM2_LOC
 foreach g in AX BX CX EX FX JX LX TX WX YX{
 	renvars WBAID_ADM2_LOC_`g'13 Disbursementcount_ADM2_`g'13 / WBAID_ADM2_LOC_`g'  Disbursementcount_ADM2_LOC_`g' 
 }
 
-* Add data with precisioncode 4:
-merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IDA_Disbursement_ADM2_prec4.dta",  nogen
-* Replace missings
-replace WBAID_ADM2_LOC=0 if WBAID_ADM2_LOC==.
-replace WBAID_ADM2_LOC4=0 if WBAID_ADM2_LOC4 ==.
-* Add data up
-replace WBAID_ADM2_LOC=WBAID_ADM2_LOC+WBAID_ADM2_LOC4 
-replace Disbursementcount_ADM2_LOC=Disbursementcount_ADM2_LOC+Disbursementcount_ADM24
+	* Add data with precisioncode 4:
+	merge 1:1 ID_adm2 transaction_year using "$data\Aid\2017_11_14_WB\IDA_Disbursement_ADM2_prec4.dta",  nogen
+	* Replace missings
+	replace WBAID_ADM2_LOC=0 if WBAID_ADM2_LOC==.
+	replace WBAID_ADM2_LOC4=0 if WBAID_ADM2_LOC4 ==.
+	* Add data up
+	replace WBAID_ADM2_LOC=WBAID_ADM2_LOC+WBAID_ADM2_LOC4 
+	replace Disbursementcount_ADM2_LOC=Disbursementcount_ADM2_LOC+Disbursementcount_ADM24
 foreach g in AX BX CX EX FX JX LX TX WX YX{
 	* Replace missings
-	replace WBAID_ADM2_LOC_`g'=0 if WBAID_ADM2_LOC_`g'==.
-	replace WBAID_ADM2_LOC_`g'4=0 if WBAID_ADM2_LOC_`g'4 ==.
-	*XXXXXX Melvin 06.01.2018: @Lennart, do we not need to set the disbursement count equal to 0 if missing?
-	
-	* Add data up
-	replace WBAID_ADM2_LOC_`g'=WBAID_ADM2_LOC_`g'+WBAID_ADM2_LOC_`g'4
-	replace Disbursementcount_ADM2_LOC_`g'=Disbursementcount_ADM2_LOC_`g'+Disbursementcount_ADM2_`g'4
-	* Clean
-	drop Disbursementcount_ADM2_`g'4 WBAID_ADM2_LOC_`g'4
-}
-drop Disbursementcount_ADM2*4 WBAID_ADM2_LOC*4
-drop d_miss_ADM2 count totalcount total
+		replace WBAID_ADM2_LOC_`g'=0 if WBAID_ADM2_LOC_`g'==.
+		replace WBAID_ADM2_LOC_`g'4=0 if WBAID_ADM2_LOC_`g'4 ==.
+		* Add data up
+		replace WBAID_ADM2_LOC_`g'=WBAID_ADM2_LOC_`g'+WBAID_ADM2_LOC_`g'4
+		replace Disbursementcount_ADM2_LOC_`g'=Disbursementcount_ADM2_LOC_`g'+Disbursementcount_ADM2_`g'4
+		* Clean
+		drop Disbursementcount_ADM2_`g'4 WBAID_ADM2_LOC_`g'4
+		}
+	drop Disbursementcount_ADM2*4 WBAID_ADM2_LOC*4
+	drop d_miss_ADM2 count totalcount total
 * Labeling
-label var WBAID_ADM2_LOC "Value of WB Aid disbursements per ADM2 region(weighted by number of project locations)"
-label var Disbursementcount_ADM2_LOC " Number of non-negative aid disbursements per region"
+	label var WBAID_ADM2_LOC "Value of WB Aid disbursements per ADM2 region(weighted by number of project locations)"
+	label var Disbursementcount_ADM2_LOC " Number of non-negative aid disbursements per region"
 
 foreach g in AX BX CX EX FX JX LX TX WX YX{
 	label var Disbursementcount_ADM2_LOC_`g' " Number of non-negative aid disbursements per region in sector `g'"
 	label var WBAID_ADM2_LOC_`g' "Value of WB Aid per ADM2 region in sector `g' (weighted by # of proj. locations)"
-}	
+	}	
 	
-save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2.dta", replace
+	save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2.dta", replace
 	
 	
 * XXXXXXX Lennart 04.01.2018: Generate location weighted aid on ADM1 level by collapsing ADM1 level data
@@ -441,7 +401,7 @@ foreach g in AX BX CX EX FX JX LX TX WX YX{
 	label var Disbursementcount_ADM1_LOC_`g' " Number of non-negative aid disbursements per region in sector `g'"
 	label var WBAID_ADM1_LOC_`g' "Value of WB Aid per ADM1 region in sector `g' (weighted by # of proj. locations)"
 	}	
-*XXXXXX Melvin 06.01.2018: Manually checked if the sum of all allocated aid equals the sum of project aid. It does.
+	
 save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1.dta", replace
 
 
@@ -457,8 +417,8 @@ save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1.dta", replace
 	tsfill, full //fill out data gaps
 	gen years_reverse =-transaction_year
 	//Melvin H.L. Wong: 4. carryforward, countryname etc
-	bysort ID_adm2_num (transaction_year): carryforward ID_adm* ADM* ISO3 ID_*, replace 
-	bysort ID_adm2_num (years_reverse): carryforward ID_adm* ID_adm2 ADM* ISO3 ID_*, replace
+	bysort ID_adm2_num (transaction_year): carryforward ID_adm* ADM* ISO3 ID_* missing_GADM2, replace 
+	bysort ID_adm2_num (years_reverse): carryforward ID_adm* ID_adm2 ADM* ISO3 ID_* missing_GADM2, replace
 	//Melvin H.L. Wong: 5. replace Aidvvar= 0 if Aidvar==.
 	replace WBAID_ADM2_LOC = 0 if WBAID_ADM2_LOC ==.
 	replace Disbursementcount_ADM2_LOC = 0 if Disbursementcount_ADM2_LOC ==.
@@ -500,66 +460,56 @@ erase "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1.dta"
 erase "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2.dta"
 erase "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_prec13.dta"
 erase "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_prec4.dta"
+erase "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_prec13.dta"
 erase "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM1_prec4.dta"
 erase "$data\Aid\2017_11_14_WB\IDA_disbursement.dta"
 
 sssssssssss
 
-*XXXXXX Melvin 05.01.2018: Population data is ready to use now. No changes in code required to retrieve new pop data
+/* XXXX Lennart 04.01.2018: This part is on hold and will be updated, once the corrected population data is available.
+* Prepare population weighted data with precision code 4 (Only ADM1 information)
+use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
+renvars transaction_year ID_adm1 / year rid1
+merge m:1 rid1 year using "$data\ADM\1_1_1_R_pop_GADM1.dta", nogen
+renvars year rid1 /  transaction_year ID_adm1
+sort project_id transaction_year
+rename isum_pop isum_pop_ADM1
+bysort project_id transaction_year: egen pop_projects_ADM1=total(isum_pop_ADM1) //create total pop of regions for each project_id and year
+* Create population weighted aid and count variables
+gen WBAID_ADM1_Wpop4=(transaction_value_tot*isum_pop_ADM1)/pop_projects_ADM1
+*XXXXXX Melvin 29.12.2017: @Lennart, same comment:what is the purpose of this? Could you comment the steps? e.g. why do disbursemnt count sum up?
+gen Disbursementcount_ADM1=(Disbursementcount*isum_pop_ADM1)/pop_projects_ADM1
+foreach g in AX BX CX EX FX JX LX TX WX YX{
+gen WBAID_ADM1_Wpop_`g'4=(transaction_value_tot_`g'*isum_pop_ADM1)/pop_projects_ADM1
+gen Disbursementcount_ADM1_`g'=(Disbursementcount_`g'*isum_pop_ADM1)/pop_projects_ADM1
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+collapse (sum) WBAID_ADM1* Disbursementcount_ADM1*, by(transaction_year ISO3 ADM0 ADM1 ID_adm1)
+* Create rounded counts
+replace Disbursementcount_ADM1=round(Disbursementcount_ADM1)
+renvars Disbursementcount_ADM1 / Disbursementcount_ADM14
+foreach g in AX BX CX EX FX JX LX TX WX YX{
+replace Disbursementcount_ADM1_`g'=round(Disbursementcount_ADM1_`g')
+renvars  Disbursementcount_ADM1_`g' /  Disbursementcount_ADM1_`g'4
+}
+keep WBAID* Disbursement* transaction_year ISO3 ADM1 ID_adm1
+save Disbursement_ADM1_Wpop_prec4.dta, replace 
 
 
 * Prepare population weighted data with precision code 4 (ADM2 information)
-use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", clear
-//attach ADM2 regions corresponding to each ADM1 region
-joinby ID_adm1 using gadm2.dta, update
-//create missing id variables after joining datasets
-gen c = "c"
-gen r = "r"
-drop ID_adm2
-egen ID_adm2 = concat(c ID_0N100 r ID_1N100 r ID_2N100)
-drop c r
-/*XXXXXX Melvin 30.12.2017: this section becomes redundant now
+use "$data\Aid\2017_11_14_WB\IDA_disbursement4.dta", replace
+joinby ID_adm1 using `gadm2'
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
 	  
 	//create dummy variable indicating if a GADM2 region is missing, thus have been replaced by GADM1 region
 	gen byte missing_GADM2=(ID_2==0 & ID_1!=0)
-*/
 
 * Merge with Population data
 renvars transaction_year ID_adm2 / year rid2
 merge m:1 rid2 year using "$data\ADM\1_1_1_R_pop_GADM2.dta", nogen
 renvars year rid2 isum_pop /  transaction_year ID_adm2 isum_pop_ADM2
-
-*XXXXXX Melvin 02.01.2018: Treat missing ADM2 regions as ADM1 region: Merge ADM1 pop if ADM2 is missing
-renvars transaction_year ID_adm1 / year rid1
-merge m:1 rid1 year using "$data\ADM\1_1_1_R_pop_GADM1.dta", keep(3) nogen keepusing(isum_pop)
-replace isum_pop_ADM2=isum_pop if d_miss_ADM2==1
-drop isum_pop 
-renvars year rid1 / transaction_year ID_adm1
-
-
 sort project_id transaction_year
 bysort project_id transaction_year: egen pop_projects_ADM2=total(isum_pop_ADM2) //create total pop of regions for each project_id and year
 gen WBAID_ADM2_Wpop4=(transaction_value_tot*isum_pop_ADM2)/pop_projects_ADM2
@@ -582,31 +532,16 @@ replace Disbursementcount_ADM2_`g'4=round(Disbursementcount_ADM2_`g'4)
 }
 keep WBAID* Disbursement* transaction_year ADM1 ADM2 ISO3 ID_adm2 ID_adm1
 
-save "$data\Aid\2017_11_14_WB\IDA_disbursement_ADM2_Wpop_prec4.dta", replace 
-
-
-/*
-summary - So far we created the following dta files for aid data:
-- IDA_disbursement.dta // all IDA disbursements containing transaction_value_tot (aid value discounted by information loss)
-- IDA_disbursement4.dta // subset of IDA_disbursement.dta
-- IDA_disbursement_ADM1_prec4.dta  //location-weighted aid coded with precision 4 on ADM1 level
-- IDA_disbursement_ADM2_prec4.dta	//location-weighted aid coded with precision 4 on ADM2 level
-- IDA_disbursement_ADM1_Wpop_prec4.dta  //pop-weighted aid coded with precision 4 on ADM1 level
-- IDA_disbursement_ADM2_Wpop_prec4.dta	//pop-weighted aid coded with precision 4 on ADM2 level
-
+save Disbursement_ADM2_Wpop_prec4.dta, replace 
 */
+
+
 ********************************************************************************
-//3) Generate regional shares weighted by number of projects (other than precision code 4 if ADM2)
+//Generate regional shares weighted by number of projects
 ********************************************************************************
 * KG. @Melvin There seem to be errors in the names of some adm2 regions, or not?E.g., that with the ID_2n100 633?
-*XXXXXX Melvin 30.12.2017: @ Kai, this is true. I reckon we do not need the names anyway but the specific IDs. Only IDs are used and not names for merges ect.
-use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
-/*XXXXXX Melvin 30.12.2017: drop all projects coded with precision 4 as merged later
-but we also need to subtract aid amount of projects with precision 4, as they are merged later
-*/
-drop if precision_N100==4
-ssssssssssss
 
+use "$data\Aid\2017_11_14_WB\IDA_disbursement.dta", clear
 gen count=1
 bysort project_id transaction_year: egen count1=total(count)
 label var count1 "Number of project sites per project per year"  
@@ -620,6 +555,7 @@ gen WBAID_ADM2_1loc_`g'=transaction_value_tot_`g'/count1 if count1==1
 gen WBAID_ADM2=transaction_value_tot/count1  //This calculates the average value per projectside, necessary as some projects are in more than one adm2 region (@Melvin, right?) //MW: exactly.
 gen WBAID_ADM2_1loc=transaction_value_tot/count1 if count1==1
 * Due to different project locations in one ADM2 region, we partly have multiple observations. Thus, calculate ADM2 disbursements by project
+* This collapse substitues for aggregation in lines 93-98 as well as line 137
 collapse (sum) WBAID_ADM2* (mean) Disbursementcount*, by(project_id ID_adm2 transaction_year ID_adm1 ADM0 ADM1 ADM2 ID_1N100 ID_0N100 ID_2N100 ISO3)
 collapse (sum) WBAID_ADM2* Disbursementcount*, by(ID_adm2 transaction_year ID_adm1 ADM0 ADM1 ADM2 ID_1N100 ID_0N100 ID_2N100 ISO3)
 
@@ -650,8 +586,8 @@ Pretend that ADM2 regions are ADM1 regions, if the ADM2 regions are missing.
 (For more information see: Gespächsnotizen/2016_10_10_Kai, Melvin.docx
 */
 
-//bysort ID_0n100 ID_1n100: gen count_region
-save "$data\Aid\2017_11_14_WB\IDA_temp1.dta", replace 
+	//bysort ID_0n100 ID_1n100: gen count_region
+	save "$data\Aid\2017_11_14_WB\IDA_temp1.dta", replace 
 	
 	/* not necessary anymore, but keep if need to identify regions that are missing
 	use "$data\Aid\2017_11_14_WB\temp1.dta", clear
@@ -674,24 +610,21 @@ save "$data\Aid\2017_11_14_WB\IDA_temp1.dta", replace
 	*/
 	
 	
-use "$data\Aid\2017_11_14_WB\IDA_temp1.dta", clear
-	/*XXXXXX Melvin 30.12.2017: this section becomes redundant now
+	use "$data\Aid\2017_11_14_WB\IDA_temp1.dta", clear
 	//drop if ID_2n100==0 
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
 	  
 	//create dummy variable indicating if a GADM2 region is missing, thus have been replaced by GADM1 region
 	gen byte missing_GADM2=(ID_2==0 & ID_1!=0)
-	*/
+	
 *	collapse (sum) transaction_value_adm2 (max) missing_GADM2, by(ID_adm2 transaction_year ID_adm1 ADM0 ADM1 ADM2 ID_1N100 ID_0N100 ID_2N100 ISO3) // @ Melvin: Shouldn't we drop duplicates of project_ids here as we already summed up the values for different locations of one project. I am not sure, but would be better to double check.
 	drop if ID_0==0 //No geographic information available for AID projects (Missing Aid information worth about 5bn USD)
 	
 	
-	/*XXXXXX Melvin 30.12.2017:
 	
-	*/
 	* Add data with precisioncode 4:
-	merge 1:1 ID_adm2 transaction_year using IDA_disbursement_ADM2_prec4.dta, nogen
+	merge 1:1 ID_adm2 transaction_year using `Disbursement_ADM2_prec4', nogen
 	* Replace missings
 	replace WBAID_ADM2=0 if WBAID_ADM2==.
 	replace WBAID_ADM2_LOC4=0 if WBAID_ADM2_LOC4 ==.
@@ -1513,13 +1446,7 @@ save "$data\Aid\2017_11_14_WB\IBRD_disbursement_ADM1_prec4.dta", replace
 
 * Prepare location weighted data with precision code 4 (ADM2 information)
 use "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
-joinby ID_adm1 using gadm2.dta, update
-//create missing id variables after joining datasets
-gen c = "c"
-gen r = "r"
-drop ID_adm2
-egen ID_adm2 = concat(c ID_0N100 r ID_1N100 r ID_2N100)
-drop c r
+joinby ID_adm1 using `gadm2'
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
@@ -1551,7 +1478,7 @@ save Disbursement_ADM2_prec4, replace
 * Prepare population weighted data with precision code 4 (Only ADM1 information)
 use "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
 renvars transaction_year ID_adm1 / year rid1
-merge m:1 rid1 year using "$data\ADM\1_1_1_R_pop_GADM1.dta", nogen  keep(1 3)
+merge m:1 rid1 year using "$data\ADM\1_1_1_R_pop_GADM1.dta", nogen
 renvars year rid1 /  transaction_year ID_adm1
 sort project_id transaction_year
 rename isum_pop isum_pop_ADM1
@@ -1577,14 +1504,7 @@ save Disbursement_ADM1_Wpop_prec4, replace
 
 * Prepare population weighted data with precision code 4 (ADM2 information)
 use "$data\Aid\2017_11_14_WB\IBRD_disbursement4.dta", replace
-joinby ID_adm1 using gadm2.dta, update
-//create missing id variables after joining datasets
-gen c = "c"
-gen r = "r"
-drop ID_adm2
-egen ID_adm2 = concat(c ID_0N100 r ID_1N100 r ID_2N100)
-drop c r
-
+joinby ID_adm1 using gadm2.dta
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace ID_2=0 if ID_1!=. & ID_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if ID_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
@@ -1908,7 +1828,7 @@ label var Disbursementcount_ADM1_`g' "No of positive yearly disbursements in sec
 }
 
 * Add data based on precision codes 4:
-merge 1:1 ID_adm1 transaction_year using IDA_disbursement_ADM1_Wpop_prec4.dta, nogen
+merge 1:1 ID_adm1 transaction_year using Disbursement_ADM1_Wpop_prec4.dta, nogen
 replace WBAID_ADM1_Wpop=0 if WBAID_ADM1_Wpop==.
 replace WBAID_ADM1_Wpop4=0 if WBAID_ADM1_Wpop4==.
 replace WBAID_ADM1_Wpop=WBAID_ADM1_Wpop+WBAID_ADM1_Wpop4
@@ -2000,7 +1920,7 @@ label var Disbursementcount_ADM2_`g' "No of positive yearly disbursements in sec
 }
 
 	* Add data with precision code 4
-	merge 1:1 ID_adm2 transaction_year using IDA_disbursement_ADM2_Wpop_prec4.dta, nogen
+	merge 1:1 ID_adm2 transaction_year using Disbursement_ADM2_Wpop_prec4.dta, nogen
 	replace WBAID_ADM2_Wpop=0 if WBAID_ADM2_Wpop==.
 	replace WBAID_ADM2_Wpop4=0 if WBAID_ADM2_Wpop4==.
 	replace WBAID_ADM2_Wpop=WBAID_ADM2_Wpop+WBAID_ADM2_Wpop4
@@ -3322,14 +3242,7 @@ collapse (sum) best_est*  (mean) incidence_adm14, by(transaction_year ISO3 ADM0 
 
 renvars best_estn100 best_est_t1 best_est_t2 best_est_t3g best_est_t3ng / best_est_adm14 best_est_t1_adm14 best_est_t2_adm14 best_est_t3g_adm14 best_est_t3ng_adm14 
 
-joinby ID_adm1 using gadm2.dta, update
-//create missing id variables after joining datasets
-gen c = "c"
-gen r = "r"
-drop ID_adm2
-egen ID_adm2 = concat(c ID_0N100 r ID_1N100 r ID_2N100)
-drop c r
-
+joinby ID_adm1 using gadm2.dta
 gen count=1
 bysort ID_adm1 transaction_year: egen count1=total(count)
 replace count1=0 if count1==.
@@ -3352,14 +3265,7 @@ collapse (sum) best_est* (mean) incidence_adm14, by(transaction_year ISO3 ADM0 A
 
 renvars best_estn100 best_est_t1 best_est_t2 best_est_t3g best_est_t3ng / best_est_adm14 best_est_t1_adm14 best_est_t2_adm14 best_est_t3g_adm14 best_est_t3ng_adm14 
 
-joinby ID_adm1 using gadm2.dta, update
-//create missing id variables after joining datasets
-gen c = "c"
-gen r = "r"
-drop ID_adm2
-egen ID_adm2 = concat(c ID_0N100 r ID_1N100 r ID_2N100)
-drop c r
-
+joinby ID_adm1 using `gadm2'
 * Need to assume once again that some ADM1 regions are ADM2 regions as they are missing in our data
 	replace id_2=0 if id_1!=. & id_2==. //save one observation where there is actually one obs with project side for adm1 region    @Melvin: Keine Änderungen werden angezeigt??? //MW: Possible explanation; Lennart changed disbursement.dta. Previously only projects with code "C" instead of "D" where included.
 	drop if id_2==. //there are a lot of them without data on location  KG: @Melvin: A lot? Stata says 63? Komisch dass ich in dem TempFile die ID_2 Variable nicht sehe? Oder wird das nicht angezeigt? Ich sehe nur ID_adm2 ID_2N100
@@ -3750,10 +3656,9 @@ save "$data\dataprocessed\ADM2NLIGHTS.dta", replace
 *xxxxxxxxxx Melvin 14.11.2017: Clean up folder and erase temp file
 erase gadm2.dta
 erase country_pop.dta
-erase IDA_disbursement_ADM1_prec4.dta
-erase IDA_disbursement_ADM2_prec4.dta
-erase IDA_disbursement_ADM1_Wpop_prec4.dta
-erase IDA_disbursement_ADM2_Wpop_prec4.dta
+erase Disbursement_ADM2_prec4.dta
+erase Disbursement_ADM1_Wpop_prec4.dta
+erase Disbursement_ADM2_Wpop_prec4.dta
 erase ADM1POP.dta
 erase ADM2POP.dta
 erase ancillary.dta
